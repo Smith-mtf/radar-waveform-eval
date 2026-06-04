@@ -1,0 +1,43 @@
+[project]
+name = "radar-waveform-eval"
+version = "0.1.0"
+description = "雷达波形性能评估桌面软件 V1.0"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib",
+    "numpy",
+    "pydantic",
+    "PySide6",
+    "scipy",
+]
+
+[dependency-groups]
+dev = [
+    "mypy",
+    "pyinstaller",
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+radar-waveform-eval = "desktop_app.main:main"
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true

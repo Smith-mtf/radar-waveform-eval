@@ -1,0 +1,10 @@
+{
+  "name": "default_hopping",
+  "waveform_type": "hopping",
+  "carrier_frequency_hz": 10000000000.0,
+  "bandwidth_hz": 30000000.0,
+  "pulse_width_s": 0.00002,
+  "sample_rate_hz": 120000000.0,
+  "pulse_repetition_frequency_hz": 1000.0
+}
+
