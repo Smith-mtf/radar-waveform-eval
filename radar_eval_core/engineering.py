@@ -1,10 +1,60 @@
-"""工程可实现性相关占位接口。"""
+"""工程可实现性相关指标。"""
 
 from __future__ import annotations
 
+import numpy as np
+import numpy.typing as npt
+
+
+def compute_average_power(iq: npt.NDArray[np.complexfloating]) -> float:
+    """计算复 IQ 信号的平均功率。"""
+    _validate_non_empty_signal(iq)
+    return float(np.mean(np.abs(iq) ** 2))
+
+
+def compute_peak_power(iq: npt.NDArray[np.complexfloating]) -> float:
+    """计算复 IQ 信号的峰值功率。"""
+    _validate_non_empty_signal(iq)
+    return float(np.max(np.abs(iq) ** 2))
+
+
+def compute_papr_db(iq: npt.NDArray[np.complexfloating]) -> float:
+    """计算复 IQ 信号的峰均功率比，单位为 dB。"""
+    average_power = compute_average_power(iq)
+    if average_power <= 0:
+        raise ValueError("平均功率必须大于 0，才能计算 PAPR。")
+
+    peak_power = compute_peak_power(iq)
+    return float(10.0 * np.log10(peak_power / average_power))
+
+
+def compute_tbp(bandwidth_hz: float, pulse_width_s: float) -> float:
+    """计算时间带宽积。"""
+    if bandwidth_hz <= 0:
+        raise ValueError("带宽必须大于 0。")
+    if pulse_width_s <= 0:
+        raise ValueError("脉宽必须大于 0。")
+
+    return float(bandwidth_hz * pulse_width_s)
+
+
+def compute_psd_avg_w_per_hz(average_power_w: float, bandwidth_hz: float) -> float:
+    """计算平均功率谱密度，单位为 W/Hz。"""
+    if average_power_w < 0:
+        raise ValueError("平均功率不能为负。")
+    if bandwidth_hz <= 0:
+        raise ValueError("带宽必须大于 0。")
+
+    return float(average_power_w / bandwidth_hz)
+
 
 def estimate_engineering_metrics() -> None:
-    """估计工程可实现性指标的占位函数。"""
-    # TODO: 实现采样率、带宽、脉宽、处理复杂度等工程约束检查。
-    raise NotImplementedError("工程可实现性指标将在后续版本实现。")
+    """评估工程可实现性指标的预留入口。"""
+    # TODO: 后续汇总采样率、带宽、脉宽、功率和处理复杂度等工程约束。
+    raise NotImplementedError("工程可实现性综合评估将在后续版本实现。")
 
+
+def _validate_non_empty_signal(iq: npt.NDArray[np.complexfloating]) -> None:
+    """校验 IQ 信号非空。"""
+    if iq.size == 0:
+        raise ValueError("IQ 信号不能为空。")

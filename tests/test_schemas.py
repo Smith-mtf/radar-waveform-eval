@@ -9,7 +9,6 @@ def test_create_minimal_evaluation_request() -> None:
     """测试可以创建最小评估请求。"""
     request = EvaluationRequest()
 
-    assert request.waveform.name == "default_lfm"
+    assert request.waveform.name == "default_waveform"
     assert request.scenario.name == "default_scenario"
     assert request.jammer.enabled is False
-

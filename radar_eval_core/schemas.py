@@ -2,24 +2,38 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
+import numpy as np
+import numpy.typing as npt
 from pydantic import BaseModel, Field
+
+
+@dataclass(slots=True)
+class WaveformSignal:
+    """生成后的复基带波形信号。"""
+
+    t: npt.NDArray[np.float64]
+    iq: npt.NDArray[np.complex128]
+    sample_rate_hz: float
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class WaveformConfig(BaseModel):
     """波形基础配置。"""
 
-    name: str = Field(default="default_lfm", description="波形名称")
-    waveform_type: Literal["lfm", "phase_code", "hopping"] = Field(
+    waveform_type: Literal["rect", "lfm", "phase_code"] = Field(
         default="lfm",
         description="波形类型",
     )
+    name: str = Field(default="default_waveform", description="波形名称")
     carrier_frequency_hz: float = Field(default=10e9, gt=0, description="载频")
     bandwidth_hz: float = Field(default=20e6, gt=0, description="带宽")
     pulse_width_s: float = Field(default=20e-6, gt=0, description="脉宽")
     sample_rate_hz: float = Field(default=100e6, gt=0, description="采样率")
-    pulse_repetition_frequency_hz: float = Field(default=1e3, gt=0, description="脉冲重复频率")
+    peak_power_w: float = Field(default=1.0, gt=0, description="峰值功率")
+    phase_code: list[int] | None = Field(default=None, description="二相相位编码序列")
 
 
 class ScenarioConfig(BaseModel):
@@ -74,4 +88,3 @@ class EvaluationResult(BaseModel):
     overall_score: float = Field(ge=0, le=100, description="综合得分")
     axis_scores: list[AxisScore] = Field(default_factory=list, description="各维度得分")
     summary: str = Field(default="", description="结果摘要")
-
