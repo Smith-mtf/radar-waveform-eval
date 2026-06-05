@@ -1,6 +1,6 @@
 # 指标体系 V1.0
 
-V1.0 建立波形定义、数据结构、基础工程指标，以及零多普勒自相关旁瓣指标。当前范围不包含完整探测模型、二维模糊函数、多普勒容忍性或抗干扰仿真。
+V1.0 建立波形定义、数据结构、基础工程指标、零多普勒自相关旁瓣指标、离散非周期二维模糊函数，以及单脉冲匹配滤波平方律检测模型。当前范围不包含距离-多普勒耦合指标、CFAR、杂波模型或抗干扰仿真。
 
 ## 波形定义
 
@@ -60,7 +60,7 @@ V1.0 建立波形定义、数据结构、基础工程指标，以及零多普勒
 - 指标含义：接收信号经发射信号匹配滤波后的离散时间线性卷积输出。
 - 离散匹配滤波器：`h[n] = conj(tx[::-1])`。
 - 计算方式：`y[n] = convolve(rx, h, mode="full")`。
-- 关系说明：在相同采样和归一化约定下，`tx` 的自匹配滤波输出与零多普勒模糊函数切片等价。
+- 关系说明：在相同采样和归一化约定下，`tx` 的自匹配滤波输出与 zero-Doppler cut 等价。
 
 ### 零多普勒 PSLR
 
@@ -88,12 +88,95 @@ V1.0 建立波形定义、数据结构、基础工程指标，以及零多普勒
 - 单位：samples。
 - 指标方向：通常越小越好，但必须结合距离分辨率和旁瓣指标解释。
 
-## 本模块不计算的内容
+## 二维模糊函数与多普勒容忍性
 
-- 本模块只计算零多普勒自相关旁瓣指标。
-- 二维模糊函数 PSLR / ISLR 后续单独实现。
-- 场景脉压 PSLR / ISLR 后续单独实现。
-- 本模块不计算处理增益，处理增益将在探测模型和输出 SNR 定义明确后实现。
+### 二维模糊函数
+
+- 指标名称：`ambiguity_function`。
+- 定义：`chi[m, fd] = sum_n s[n] * conj(s[n - m]) * exp(-j * 2*pi * fd * n * Ts)`。
+- 相关类型：非周期相关，超出信号支撑范围的样本不参与求和。
+- delay 单位：samples 和 seconds。
+- Doppler 单位：Hz。
+- 矩阵方向：行对应 Doppler，列对应 delay。
+- 关系说明：zero-Doppler cut 与自匹配滤波输出在相同 delay 排列下等价。
+
+### zero-Doppler cut
+
+- 指标含义：`fd = 0` 的距离延迟切片。
+- 用途：可用于与自相关脉压结果交叉验证。
+- 输出：`delay_samples` 和对应的归一化幅度。
+
+### zero-delay Doppler cut
+
+- 指标含义：`delay = 0` 的 Doppler 响应切片。
+- 用途：用于计算多普勒容忍性。
+- 输出：`doppler_hz` 和对应的归一化幅度。
+
+### 多普勒容忍性
+
+- 指标名称：`doppler_tolerance_hz`。
+- 定义：给定 `loss_db`，找到 zero-delay Doppler cut 相对 `fd = 0` 响应下降到 `10^(-loss_db / 20)` 的正负 Doppler crossing，取 `min(abs(negative_crossing), abs(positive_crossing))`。
+- 单位：Hz。
+- 指标方向：越大越好。
+- 适用条件：Doppler 网格必须覆盖正负 crossing，且网格分辨率足以支持线性插值定位。
+- 不可用条件：如果网格无法覆盖 crossing，则抛出异常，不返回猜测值或网格边界。
+
+## 探测性能模型
+
+### 模型假设
+
+本步只实现单脉冲匹配滤波平方律检测。观测信号为 `x = alpha * s + n`，其中 `s` 是已知复基带目标回波信号向量，`alpha` 是非起伏目标复幅度且目标相位未知，`n ~ CN(0, sigma^2 I)` 是复高斯白噪声。`sigma^2` 表示每个复采样点的噪声功率，即 `E[|n[k]|^2]`。
+
+匹配滤波输出为 `y = sum_k x[k] * conj(s[k])`。信号能量为 `Es = sum_k |s[k]|^2`。归一化检测统计量为 `T = |y|^2 / (sigma^2 * Es)`。
+
+### 检测门限
+
+- 指标名称：`detection_threshold_normalized`。
+- 公式：`eta = -ln(Pfa)`。
+- 单位：无量纲。
+- 适用条件：`0 < Pfa < 1`。
+
+### 虚警概率
+
+- 指标名称：`pfa`。
+- 公式：`Pfa = exp(-eta)`。
+- 说明：在 H0 下，`T ~ Exp(1)`。
+
+### 输出 SNR
+
+- 指标名称：`output_snr_linear` / `output_snr_db`。
+- 公式：`gamma = Es / sigma^2`。
+- 说明：`Es = sum(|s[k]|^2)`，`sigma^2 = E[|n[k]|^2]`。
+- 单位：线性值或 dB。
+
+### 检测概率
+
+- 指标名称：`pd`。
+- 公式：`Pd = scipy.stats.ncx2.sf(2 * eta, df=2, nc=2 * gamma)`。
+- 说明：在 H1 下，`2T ~ chi2(df=2, nc=2 * gamma)`。该公式只适用于本模块定义的复高斯白噪声、已知波形、单目标、非起伏幅度、未知相位、匹配滤波平方律检测模型。
+
+### 所需输出 SNR
+
+- 指标名称：`required_output_snr_linear` / `required_output_snr_db`。
+- 定义：通过数值反解 `Pd = target_pd` 得到。
+- 说明：如果 `target_pd <= pfa`，所需输出 SNR 为 0；如果给定搜索范围无法达到 `target_pd`，则抛出异常，不返回猜测值。
+
+### 匹配滤波处理增益
+
+- 指标名称：`matched_filter_processing_gain_db`。
+- 定义：`output_snr / average_sample_snr`。
+- 当前约定：`average_sample_snr = mean(|s|^2) / sigma^2`，因此长度为 `N` 的完整信号向量对应处理增益 `10 * log10(N)`。
+
+## 本阶段不计算的内容
+
+- 本步不计算距离-多普勒耦合指标。
+- 暂不实现 Swerling I/II/III/IV 目标起伏模型。
+- 暂不实现 CFAR。
+- 暂不实现杂波模型。
+- 暂不实现多脉冲非相干或相干积累。
+- 暂不实现检测曲线 Monte Carlo 仿真。
+- 暂不实现抗干扰下的 Pd，后续在干扰模型明确后实现。
+- 这些指标后续需要严格定义模型假设、评价范围或统计检验方式。
 
 ## 适用条件
 

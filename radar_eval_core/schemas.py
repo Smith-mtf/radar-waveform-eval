@@ -92,6 +92,63 @@ class ZeroDopplerSidelobeMetrics(BaseModel):
         return self
 
 
+@dataclass(slots=True)
+class AmbiguityFunctionResult:
+    """离散非周期二维模糊函数计算结果。"""
+
+    delay_samples: npt.NDArray[np.int_]
+    delay_seconds: npt.NDArray[np.float64]
+    doppler_hz: npt.NDArray[np.float64]
+    ambiguity_complex: npt.NDArray[np.complex128]
+    ambiguity_magnitude: npt.NDArray[np.float64]
+    ambiguity_magnitude_normalized: npt.NDArray[np.float64]
+    peak_magnitude: float
+    peak_delay_samples: int
+    peak_doppler_hz: float
+    sample_rate_hz: float
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class DopplerToleranceMetrics:
+    """基于 zero-delay Doppler cut 的多普勒容忍性指标。"""
+
+    loss_db: float
+    threshold_linear: float
+    negative_crossing_hz: float
+    positive_crossing_hz: float
+    doppler_tolerance_hz: float
+    zero_delay_peak_magnitude: float
+
+
+class DetectionMetrics(BaseModel):
+    """单脉冲匹配滤波平方律检测模型的结构化指标。"""
+
+    model_name: str = Field(default="single_pulse_matched_filter_square_law_cawg")
+    noise_model: str = Field(default="complex_awgn")
+    target_model: str = Field(default="deterministic_nonfluctuating_unknown_phase")
+    detector: str = Field(default="matched_filter_square_law")
+    pfa: float = Field(gt=0, lt=1, description="虚警概率")
+    threshold_normalized: float = Field(ge=0, description="归一化检测门限")
+    signal_energy: float = Field(gt=0, description="信号能量")
+    noise_variance: float = Field(gt=0, description="每个复采样点的噪声功率")
+    average_sample_snr_linear: float = Field(gt=0, description="平均采样 SNR 线性值")
+    average_sample_snr_db: float = Field(description="平均采样 SNR，单位 dB")
+    output_snr_linear: float = Field(gt=0, description="匹配滤波输出 SNR 线性值")
+    output_snr_db: float = Field(description="匹配滤波输出 SNR，单位 dB")
+    matched_filter_processing_gain_db: float = Field(description="匹配滤波处理增益，单位 dB")
+    pd: float = Field(ge=0, le=1, description="检测概率")
+    target_pd: float | None = Field(default=None, description="目标检测概率")
+    required_output_snr_linear: float | None = Field(
+        default=None,
+        description="目标 Pd 所需输出 SNR",
+    )
+    required_output_snr_db: float | None = Field(
+        default=None,
+        description="目标 Pd 所需输出 SNR，单位 dB",
+    )
+
+
 class ScenarioConfig(BaseModel):
     """评估场景基础配置。"""
 
