@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 import numpy as np
 import numpy.typing as npt
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 @dataclass(slots=True)
@@ -34,6 +34,62 @@ class WaveformConfig(BaseModel):
     sample_rate_hz: float = Field(default=100e6, gt=0, description="采样率")
     peak_power_w: float = Field(default=1.0, gt=0, description="峰值功率")
     phase_code: list[int] | None = Field(default=None, description="二相相位编码序列")
+
+    @model_validator(mode="after")
+    def validate_phase_code_usage(self) -> Self:
+        """校验相位编码配置与波形类型一致。"""
+        if self.waveform_type != "phase_code":
+            if self.phase_code is not None:
+                raise ValueError("phase_code 仅允许用于 phase_code 波形。")
+            return self
+
+        if self.phase_code is None:
+            raise ValueError("phase_code 波形必须提供相位编码序列。")
+        if len(self.phase_code) < 2:
+            raise ValueError("phase_code 长度必须至少为 2。")
+
+        unique_values = set(self.phase_code)
+        if unique_values not in ({0, 1}, {-1, 1}):
+            raise ValueError("phase_code 只允许使用完整的 0/1 或 -1/1 二相编码。")
+
+        return self
+
+
+class MainlobeSpec(BaseModel):
+    """零多普勒旁瓣指标的主瓣边界定义。"""
+
+    method: Literal["manual_guard_samples", "first_local_minimum", "null_to_null"]
+    guard_samples: int | None = Field(default=None, ge=0, description="主峰左右保护采样点数")
+    null_tolerance: float = Field(default=1e-6, gt=0, description="零点检测相对门限")
+
+    @model_validator(mode="after")
+    def validate_manual_guard_samples(self) -> Self:
+        """校验手动主瓣保护区参数。"""
+        if self.method == "manual_guard_samples" and self.guard_samples is None:
+            raise ValueError("manual_guard_samples 方法必须提供 guard_samples。")
+        return self
+
+
+class ZeroDopplerSidelobeMetrics(BaseModel):
+    """零多普勒自相关旁瓣指标。"""
+
+    peak_index: int = Field(ge=0, description="主峰索引")
+    peak_magnitude: float = Field(gt=0, description="主峰幅度")
+    mainlobe_left_index: int = Field(ge=0, description="主瓣左边界索引")
+    mainlobe_right_index: int = Field(ge=0, description="主瓣右边界索引")
+    mainlobe_width_samples: int = Field(ge=1, description="主瓣宽度，单位为 samples")
+    zero_doppler_pslr_db: float = Field(description="零多普勒峰值旁瓣比，单位为 dB")
+    zero_doppler_islr_db: float = Field(description="零多普勒积分旁瓣比，单位为 dB")
+
+    @model_validator(mode="after")
+    def validate_mainlobe_bounds(self) -> Self:
+        """校验主瓣边界与宽度一致。"""
+        if not self.mainlobe_left_index <= self.peak_index <= self.mainlobe_right_index:
+            raise ValueError("主瓣边界必须包含 peak_index。")
+        expected_width = self.mainlobe_right_index - self.mainlobe_left_index + 1
+        if self.mainlobe_width_samples != expected_width:
+            raise ValueError("mainlobe_width_samples 与主瓣边界不一致。")
+        return self
 
 
 class ScenarioConfig(BaseModel):
