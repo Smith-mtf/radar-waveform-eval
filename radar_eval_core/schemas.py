@@ -121,6 +121,47 @@ class DopplerToleranceMetrics:
     zero_delay_peak_magnitude: float
 
 
+@dataclass(slots=True)
+class SpectrumEstimate:
+    """双边 periodogram PSD 估计结果。"""
+
+    frequency_hz: npt.NDArray[np.float64]
+    psd_w_per_hz: npt.NDArray[np.float64]
+    frequency_resolution_hz: float
+    total_power_from_psd_w: float
+    average_power_time_domain_w: float
+    relative_power_error: float
+    method: str
+    window: str
+    scaling: str
+    return_onesided: bool
+
+
+@dataclass(slots=True)
+class OccupiedBandwidthMetrics:
+    """基于 PSD 累计功率的中心占用带宽指标。"""
+
+    occupied_power_fraction: float
+    occupied_bandwidth_hz: float
+    lower_frequency_hz: float
+    upper_frequency_hz: float
+    total_power_w: float
+    lower_tail_power_fraction: float
+    upper_tail_power_fraction: float
+    method: str
+
+
+class ResolutionMetrics(BaseModel):
+    """严格定义的距离、多普勒和速度分辨能力指标。"""
+
+    range_resolution_m: float = Field(gt=0, description="距离分辨率")
+    range_sample_spacing_m: float = Field(gt=0, description="距离采样间隔")
+    wavelength_m: float | None = Field(default=None, gt=0, description="波长")
+    cpi_s: float | None = Field(default=None, gt=0, description="相干处理时间")
+    doppler_resolution_hz: float | None = Field(default=None, gt=0, description="多普勒分辨率")
+    velocity_resolution_mps: float | None = Field(default=None, gt=0, description="速度分辨率")
+
+
 class DetectionMetrics(BaseModel):
     """单脉冲匹配滤波平方律检测模型的结构化指标。"""
 
@@ -149,6 +190,54 @@ class DetectionMetrics(BaseModel):
     )
 
 
+class JammingMetrics(BaseModel):
+    """宽带复高斯噪声压制干扰模型的结构化指标。"""
+
+    model_name: str = Field(default="wideband_complex_gaussian_noise_jamming")
+    jammer_model: str = Field(default="complex_awgn_barrage")
+    detector_model: str = Field(default="single_pulse_matched_filter_square_law_cawg")
+    pfa: float = Field(gt=0, lt=1, description="虚警概率")
+    jsr_linear: float = Field(ge=0, description="干信比线性值")
+    jsr_db: float = Field(description="干信比，单位 dB")
+    signal_energy: float = Field(gt=0, description="信号能量")
+    average_target_sample_power: float = Field(gt=0, description="目标平均采样功率")
+    noise_variance: float = Field(gt=0, description="热噪声方差")
+    jammer_variance: float = Field(ge=0, description="干扰方差")
+    total_disturbance_variance: float = Field(gt=0, description="总扰动方差")
+    clean_output_snr_linear: float = Field(gt=0, description="无干扰输出 SNR 线性值")
+    clean_output_snr_db: float = Field(description="无干扰输出 SNR，单位 dB")
+    jammed_output_sinr_linear: float = Field(gt=0, description="干扰下输出 SINR 线性值")
+    jammed_output_sinr_db: float = Field(description="干扰下输出 SINR，单位 dB")
+    clean_pd: float = Field(ge=0, le=1, description="无干扰检测概率")
+    jammed_pd: float = Field(ge=0, le=1, description="干扰下检测概率")
+    pd_retention: float = Field(ge=0, le=1, description="检测概率保持率")
+    target_pd: float | None = Field(default=None, description="目标检测概率")
+    jamming_margin_jsr_linear: float | None = Field(default=None, description="抗干扰裕度 JSR")
+    jamming_margin_jsr_db: float | None = Field(default=None, description="抗干扰裕度 JSR，单位 dB")
+
+
+class LpiExposureMetrics(BaseModel):
+    """仅由波形本身计算的低截获暴露特征。"""
+
+    model_name: str = Field(default="waveform_lpi_exposure_features")
+    feature_scope: str = Field(default="waveform_features_only_no_intercept_receiver_model")
+    peak_power_w: float = Field(gt=0, description="峰值功率")
+    average_power_w: float = Field(gt=0, description="平均功率")
+    papr_db: float = Field(ge=0, description="峰均功率比，单位 dB")
+    bandwidth_hz: float = Field(gt=0, description="名义带宽")
+    pulse_width_s: float = Field(gt=0, description="脉宽")
+    nominal_avg_psd_w_per_hz: float = Field(ge=0, description="名义平均功率谱密度")
+    tbp: float = Field(gt=0, description="时宽带宽积")
+    occupied_power_fraction: float = Field(gt=0, lt=1, description="占用功率比例")
+    occupied_bandwidth_hz: float = Field(gt=0, description="中心占用带宽")
+    occupied_lower_frequency_hz: float = Field(description="占用带宽下边界频率")
+    occupied_upper_frequency_hz: float = Field(description="占用带宽上边界频率")
+    psd_total_power_w: float = Field(gt=0, description="PSD 积分得到的总功率")
+    psd_relative_power_error: float = Field(ge=0, description="PSD 积分功率相对误差")
+    duty_cycle: float | None = Field(default=None, gt=0, le=1, description="占空比")
+    duty_cycle_definition: str | None = Field(default=None, description="占空比计算定义")
+
+
 class ScenarioConfig(BaseModel):
     """评估场景基础配置。"""
 
@@ -169,12 +258,60 @@ class JammerConfig(BaseModel):
     jammer_to_signal_ratio_db: float = Field(default=0.0, description="干信比")
 
 
+class EvaluationSettings(BaseModel):
+    """算法评估流水线参数。"""
+
+    pfa: float = Field(default=1e-6, gt=0, lt=1, description="虚警概率")
+    target_pd: float | None = Field(default=0.9, gt=0, lt=1, description="目标检测概率")
+    noise_variance: float = Field(default=1.0, gt=0, description="每个复采样点噪声功率")
+    mainlobe_spec: MainlobeSpec = Field(
+        default_factory=lambda: MainlobeSpec(method="manual_guard_samples", guard_samples=0),
+        description="零多普勒旁瓣主瓣定义",
+    )
+    doppler_max_hz: float = Field(default=100_000.0, gt=0, description="对称 Doppler 网格最大频率")
+    doppler_points: int = Field(default=1001, ge=3, description="Doppler 网格点数")
+    doppler_loss_db: float = Field(default=3.0, gt=0, description="多普勒容忍性损失门限")
+    cpi_s: float | None = Field(default=None, gt=0, description="直接给定的 CPI")
+    num_pulses: int | None = Field(default=64, ge=1, description="CPI 内脉冲数")
+    prf_hz: float | None = Field(default=1000.0, gt=0, description="脉冲重复频率")
+    pri_s: float | None = Field(default=None, gt=0, description="脉冲重复间隔")
+    occupied_power_fraction: float = Field(default=0.99, gt=0, lt=1, description="占用功率比例")
+
+    @model_validator(mode="after")
+    def validate_doppler_grid_shape(self) -> Self:
+        """校验默认生成的对称 Doppler 网格包含唯一零频点。"""
+        if self.doppler_points % 2 == 0:
+            raise ValueError("doppler_points 必须为奇数，才能生成包含 0 的对称 Doppler 网格。")
+        return self
+
+
 class EvaluationRequest(BaseModel):
     """一次评估请求。"""
 
     waveform: WaveformConfig = Field(default_factory=WaveformConfig)
     scenario: ScenarioConfig = Field(default_factory=ScenarioConfig)
     jammer: JammerConfig = Field(default_factory=JammerConfig)
+    evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
+
+
+class MetricAvailability(BaseModel):
+    """指标可用性说明。"""
+
+    metric_id: str = Field(description="指标唯一标识")
+    available: bool = Field(description="指标是否可用")
+    reason: str | None = Field(default=None, description="不可用原因")
+
+
+class RawMetric(BaseModel):
+    """评估流水线输出的原始指标。"""
+
+    metric_id: str = Field(description="指标唯一标识")
+    axis_id: str = Field(description="所属评分维度")
+    value: float | None = Field(default=None, description="指标数值；不可用时为 None")
+    unit: str = Field(default="", description="指标单位")
+    available: bool = Field(default=True, description="指标是否可用")
+    reason: str | None = Field(default=None, description="不可用原因")
+    description: str = Field(default="", description="指标说明")
 
 
 class MetricValue(BaseModel):
@@ -189,8 +326,11 @@ class MetricValue(BaseModel):
 class AxisScore(BaseModel):
     """一个评估维度的得分。"""
 
+    axis_id: str = Field(default="", description="维度标识")
     name: str = Field(description="维度名称")
-    score: float = Field(ge=0, le=100, description="百分制得分")
+    score: float | None = Field(default=None, ge=0, le=100, description="百分制得分")
+    available: bool = Field(default=True, description="维度得分是否可用")
+    reason: str | None = Field(default=None, description="不可用原因")
     metrics: list[MetricValue] = Field(default_factory=list, description="维度下的指标列表")
 
 
@@ -200,4 +340,6 @@ class EvaluationResult(BaseModel):
     request: EvaluationRequest = Field(description="原始评估请求")
     overall_score: float = Field(ge=0, le=100, description="综合得分")
     axis_scores: list[AxisScore] = Field(default_factory=list, description="各维度得分")
+    raw_metrics: list[RawMetric] = Field(default_factory=list, description="原始指标列表")
+    chart_data: dict[str, Any] = Field(default_factory=dict, description="图表所需轻量数据")
     summary: str = Field(default="", description="结果摘要")

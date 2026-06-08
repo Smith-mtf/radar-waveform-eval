@@ -1,10 +1,40 @@
 {
-  "name": "default_phase_code",
-  "waveform_type": "phase_code",
-  "carrier_frequency_hz": 10000000000.0,
-  "bandwidth_hz": 10000000.0,
-  "pulse_width_s": 0.00001,
-  "sample_rate_hz": 50000000.0,
-  "pulse_repetition_frequency_hz": 1000.0
+  "waveform": {
+    "name": "default_phase_code",
+    "waveform_type": "phase_code",
+    "carrier_frequency_hz": 10000000000.0,
+    "bandwidth_hz": 10000000.0,
+    "pulse_width_s": 0.00001,
+    "sample_rate_hz": 50000000.0,
+    "peak_power_w": 1.0,
+    "phase_code": [1, 1, 1, -1, -1, 1, -1, 1, -1, 1]
+  },
+  "scenario": {
+    "name": "default_phase_code_scenario",
+    "target_range_m": 50000.0,
+    "target_radial_velocity_mps": 100.0,
+    "signal_to_noise_ratio_db": 10.0
+  },
+  "jammer": {
+    "enabled": true,
+    "jammer_type": "noise",
+    "jammer_to_signal_ratio_db": 3.0
+  },
+  "evaluation": {
+    "pfa": 0.000001,
+    "target_pd": 0.9,
+    "noise_variance": 1.0,
+    "mainlobe_spec": {
+      "method": "manual_guard_samples",
+      "guard_samples": 0,
+      "null_tolerance": 0.000001
+    },
+    "doppler_max_hz": 100000.0,
+    "doppler_points": 1001,
+    "doppler_loss_db": 3.0,
+    "num_pulses": 64,
+    "prf_hz": 1000.0,
+    "pri_s": null,
+    "occupied_power_fraction": 0.99
+  }
 }
-
