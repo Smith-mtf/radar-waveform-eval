@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
 )
 
 from desktop_app.app_state import AppState
-from desktop_app.pages.comparison_page import ComparisonPage
 from desktop_app.pages.evaluation_page import EvaluationPage
 from desktop_app.pages.report_page import ReportPage
 from desktop_app.pages.scenario_page import ScenarioPage
@@ -97,7 +96,6 @@ class MainWindow(QMainWindow):
         self.scenario_page = ScenarioPage(self._state)
         self.evaluation_page = EvaluationPage(self._state)
         self.visualization_page = VisualizationPage(self._state)
-        self.comparison_page = ComparisonPage(self._state)
         self.report_page = ReportPage(self._state)
         self.evaluation_page.evaluation_finished.connect(self._on_evaluation_finished)
         self.evaluation_page.switch_to_visualization.connect(lambda: self._set_page_index(3))
@@ -107,7 +105,6 @@ class MainWindow(QMainWindow):
             self.scenario_page,
             self.evaluation_page,
             self.visualization_page,
-            self.comparison_page,
             self.report_page,
         ]
 
@@ -139,9 +136,7 @@ class MainWindow(QMainWindow):
         subtitle.setObjectName("AppSubtitle")
         self._navigation.setObjectName("NavigationList")
         self._navigation.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._navigation.addItems(
-            ["波形配置", "场景配置", "运行评估", "结果可视化", "横向对比", "评估报告"],
-        )
+        self._navigation.addItems(["波形配置", "场景配置", "运行评估", "结果可视化", "评估报告"])
         self._navigation.currentRowChanged.connect(self._stack.setCurrentIndex)
 
         layout.addWidget(title)
@@ -192,7 +187,6 @@ class MainWindow(QMainWindow):
         except Exception:
             self._state.current_scoring_config = None
         self._state.current_result = None
-        self._state.comparison_results.clear()
         self._state.dirty = False
         self._set_status("已新建项目")
         self.refresh_all_pages()
@@ -218,7 +212,6 @@ class MainWindow(QMainWindow):
         self._state.current_request = loaded_state.current_request
         self._state.current_scoring_config = loaded_state.current_scoring_config
         self._state.current_result = loaded_state.current_result
-        self._state.comparison_results = loaded_state.comparison_results
         self._state.dirty = False
         self._set_status("项目已打开")
         self.refresh_all_pages()
@@ -297,7 +290,6 @@ class MainWindow(QMainWindow):
         report = generate_local_template_report(
             result,
             scoring_config=self._state.current_scoring_config,
-            comparison_results=self._state.comparison_results,
         )
         try:
             export_report_markdown(render_report_markdown(report), Path(path_text))
@@ -322,7 +314,6 @@ class MainWindow(QMainWindow):
         report = generate_local_template_report(
             result,
             scoring_config=self._state.current_scoring_config,
-            comparison_results=self._state.comparison_results,
         )
         try:
             export_report_html(render_report_html(report), Path(path_text))
@@ -406,7 +397,8 @@ class MainWindow(QMainWindow):
                     "Matplotlib, Pydantic。",
                     "当前功能: 波形评估、六维评分、图表展示、本地报告、"
                     "JSON/CSV/Markdown/HTML 导出。",
-                    "当前限制: 不含外部 API、数据库、截获概率、CFAR、Swerling 和复杂干扰模型。",
+                    "当前限制: 不含外部 API、数据库、截获概率、CFAR、"
+                    "Swerling 和复杂干扰模型。",
                 ],
             ),
         )
@@ -417,3 +409,4 @@ def _action(parent: QMainWindow, text: str, slot: Callable[[], Any]) -> QAction:
     action = QAction(text, parent)
     action.triggered.connect(lambda _checked=False: slot())
     return action
+

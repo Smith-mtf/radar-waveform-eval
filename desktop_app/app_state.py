@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from radar_eval_core.schemas import EvaluationRequest, EvaluationResult
@@ -17,5 +17,4 @@ class AppState:
     current_request: EvaluationRequest | None = None
     current_scoring_config: ScoringConfig | None = None
     current_result: EvaluationResult | None = None
-    comparison_results: list[EvaluationResult] = field(default_factory=list)
     dirty: bool = False

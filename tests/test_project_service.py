@@ -27,19 +27,19 @@ def test_save_and_open_project_json(tmp_path: Path) -> None:
         current_request=request,
         current_scoring_config=scoring_config,
         current_result=result,
-        comparison_results=[result],
         dirty=True,
     )
 
     saved_path = project_service.save_project(state, tmp_path / "case")
     loaded_state = project_service.open_project(saved_path)
+    payload = json.loads(saved_path.read_text(encoding="utf-8"))
 
     assert saved_path.name.endswith(".rwep.json")
+    assert "comparison_results" not in payload
     assert loaded_state.current_request is not None
     assert loaded_state.current_request.waveform.name == "default_lfm"
     assert loaded_state.current_scoring_config is not None
     assert loaded_state.current_result is not None
-    assert len(loaded_state.comparison_results) == 1
     assert loaded_state.dirty is False
 
 
@@ -59,3 +59,4 @@ def test_open_project_rejects_missing_required_fields(tmp_path: Path) -> None:
 
     with pytest.raises(ProjectServiceError):
         ProjectService().open_project(path)
+

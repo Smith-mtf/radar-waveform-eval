@@ -34,9 +34,6 @@ class ProjectService:
             "result": None
             if state.current_result is None
             else state.current_result.model_dump(mode="json"),
-            "comparison_results": [
-                result.model_dump(mode="json") for result in state.comparison_results
-            ],
         }
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8") as file:
@@ -67,10 +64,6 @@ class ProjectService:
                 if payload.get("result") is None
                 else EvaluationResult.model_validate(payload["result"])
             )
-            comparison_results = [
-                EvaluationResult.model_validate(item)
-                for item in payload.get("comparison_results", [])
-            ]
         except Exception as exc:
             raise ProjectServiceError(f"项目文件内容无效: {exc}") from exc
 
@@ -79,7 +72,6 @@ class ProjectService:
             current_request=request,
             current_scoring_config=scoring_config,
             current_result=result,
-            comparison_results=comparison_results,
             dirty=False,
         )
 
@@ -99,3 +91,4 @@ def _ensure_project_suffix(path: Path) -> Path:
     if path.name.endswith(PROJECT_FILE_SUFFIX):
         return path
     return path.with_name(f"{path.name}{PROJECT_FILE_SUFFIX}")
+

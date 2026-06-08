@@ -39,7 +39,6 @@ def build_report_input(
     result: EvaluationResult,
     *,
     scoring_config: ScoringConfig | None = None,
-    comparison_results: list[EvaluationResult] | None = None,
     source_result_id: str | None = None,
 ) -> dict[str, Any]:
     """从 EvaluationResult 抽取报告输入，不计算新指标，也不修改原始结果。"""
@@ -59,14 +58,6 @@ def build_report_input(
         "scoring_config": None
         if scoring_config is None
         else scoring_config.model_dump(mode="json"),
-        "comparison_results": [
-            {
-                "waveform_name": item.request.waveform.name,
-                "overall_score": item.overall_score,
-                "axis_scores": [axis.model_dump(mode="json") for axis in item.axis_scores],
-            }
-            for item in comparison_results or []
-        ],
     }
 
 
@@ -74,14 +65,12 @@ def generate_local_template_report(
     result: EvaluationResult,
     *,
     scoring_config: ScoringConfig | None = None,
-    comparison_results: list[EvaluationResult] | None = None,
     source_result_id: str | None = None,
 ) -> ReportDocument:
     """基于已有 EvaluationResult 生成本地模板报告，不调用外部模型。"""
     report_input = build_report_input(
         result,
         scoring_config=scoring_config,
-        comparison_results=comparison_results,
         source_result_id=source_result_id,
     )
     metrics = {metric.metric_id: metric for metric in result.raw_metrics}
@@ -98,7 +87,6 @@ def generate_local_template_report(
         ReportSection("抗干扰性能分析", _jamming_section(metrics)),
         ReportSection("反侦察 / 低截获特征分析", _lpi_section(metrics)),
         ReportSection("工程可实现性分析", _engineering_section(metrics)),
-        ReportSection("横向对比说明", _comparison_section(result, comparison_results or [])),
         ReportSection(
             "模型假设与限制",
             _list_text([*assumptions, *limitations]),
@@ -331,21 +319,6 @@ def _metric_section(metrics: dict[str, RawMetric], metric_ids: list[str]) -> str
     return "\n".join(lines)
 
 
-def _comparison_section(
-    result: EvaluationResult,
-    comparison_results: list[EvaluationResult],
-) -> str:
-    if not comparison_results:
-        return "当前仅有一个评估结果，未进行横向对比。"
-    lines = [
-        f"当前结果 {result.request.waveform.name} 综合得分 {result.overall_score:.2f}。",
-        "对比结果摘要:",
-    ]
-    for item in comparison_results:
-        lines.append(f"- {item.request.waveform.name}: 综合得分 {item.overall_score:.2f}")
-    return "\n".join(lines)
-
-
 def _build_recommendations(
     result: EvaluationResult,
     metrics: dict[str, RawMetric],
@@ -362,7 +335,7 @@ def _build_recommendations(
     unavailable = [metric for metric in metrics.values() if not metric.available]
     if unavailable:
         recommendations.append(
-            "存在不可用指标，建议补齐对应模型参数后再进行完整横向比较。",
+            "存在不可用指标，建议补齐对应模型参数后再生成完整报告。",
         )
     if _metric_available(metrics, "anti_jamming.jammed_pd"):
         recommendations.append(
@@ -373,7 +346,7 @@ def _build_recommendations(
             "低截获相关建议应结合峰值功率、名义平均 PSD、占用带宽和任务约束共同判断。",
         )
     if not recommendations:
-        recommendations.append("当前结果未显示明确弱项，可保留评分配置并开展更多波形对比。")
+        recommendations.append("当前结果未显示明确弱项，可保留评分配置并复核关键指标。")
     return recommendations
 
 

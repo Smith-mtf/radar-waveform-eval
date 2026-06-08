@@ -102,7 +102,6 @@ class ReportPage(QWidget):
         self._report = generate_local_template_report(
             result,
             scoring_config=self._state.current_scoring_config,
-            comparison_results=self._state.comparison_results,
         )
         self._markdown = render_report_markdown(self._report)
         self._html = render_report_html(self._report)

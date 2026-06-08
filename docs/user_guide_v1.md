@@ -55,10 +55,6 @@ uv run python -m desktop_app.main
 
 所有图表只展示 `EvaluationResult.chart_data`，不重新计算指标。
 
-## 横向对比
-
-进入“横向对比”页面，可将当前结果加入对比，也可导入历史 `evaluation_result.json`。不同评分配置下的结果仅供参考。
-
 ## 生成报告
 
 进入“评估报告”页面：
@@ -82,5 +78,4 @@ uv run python -m desktop_app.main
 
 ## 保存和打开项目
 
-通过“文件 / 保存项目”保存 `.rwep.json` 文件。项目文件包含请求、评分配置、可选评估结果和可选对比结果。通过“文件 / 打开项目”可恢复。
-
+通过“文件 / 保存项目”保存 `.rwep.json` 文件。项目文件包含请求、评分配置和可选评估结果。通过“文件 / 打开项目”可恢复。
