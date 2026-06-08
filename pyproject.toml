@@ -8,7 +8,9 @@ dependencies = [
     "matplotlib",
     "numpy",
     "pydantic",
+    "pyqtgraph",
     "PySide6",
+    "qdarkstyle",
     "scipy",
 ]
 

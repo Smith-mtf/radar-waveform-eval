@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from matplotlib import rcParams
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
@@ -20,20 +19,14 @@ DEFAULT_SCORING_PATH = PROJECT_ROOT / "configs" / "scoring_default.json"
 
 
 def configure_application() -> None:
-    """配置桌面应用全局行为。"""
+    """配置桌面应用全局外观。"""
     app = QApplication.instance()
-    if app is not None:
-        app.setStyle("Fusion")
-        app.setFont(QFont("Microsoft YaHei UI", 9))
-        app.setStyleSheet(APP_STYLESHEET)
-    rcParams["font.sans-serif"] = [
-        "Microsoft YaHei UI",
-        "Microsoft YaHei",
-        "SimHei",
-        "Arial Unicode MS",
-        "DejaVu Sans",
-    ]
-    rcParams["axes.unicode_minus"] = False
+    if app is None:
+        return
+
+    app.setStyle("Fusion")
+    app.setFont(QFont("Microsoft YaHei UI", 9))
+    app.setStyleSheet(_load_dark_stylesheet())
 
 
 def create_initial_state() -> tuple[AppState, list[str]]:
@@ -57,3 +50,12 @@ def create_main_window() -> tuple[MainWindow, list[str]]:
     """创建加载默认状态的主窗口。"""
     state, errors = create_initial_state()
     return MainWindow(state), errors
+
+
+def _load_dark_stylesheet() -> str:
+    """优先使用 qdarkstyle，缺失时使用项目内置暗色 QSS。"""
+    try:
+        import qdarkstyle  # type: ignore[import-not-found]
+    except Exception:
+        return APP_STYLESHEET
+    return qdarkstyle.load_stylesheet_pyside6()

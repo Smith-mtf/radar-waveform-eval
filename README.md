@@ -18,6 +18,8 @@ V1.0 的核心定位是“本地算法评估 + 桌面演示闭环”。所有指
 
 - Python 3.12.x
 - PySide6 / QtWidgets
+- pyqtgraph
+- qdarkstyle
 - NumPy / SciPy
 - Matplotlib
 - Pydantic
