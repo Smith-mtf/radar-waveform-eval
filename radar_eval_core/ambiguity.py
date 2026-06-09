@@ -6,6 +6,7 @@ import math
 
 import numpy as np
 import numpy.typing as npt
+from scipy.fft import fft, ifft, next_fast_len
 
 from .schemas import AmbiguityFunctionResult, DopplerToleranceMetrics
 
@@ -81,20 +82,25 @@ def compute_ambiguity_function(
     doppler = validate_doppler_grid(doppler_hz, sample_rate_hz)
     delays = _validate_delay_samples(delay_samples, s.size)
     sample_interval_s = 1.0 / sample_rate_hz
+    sample_indices = np.arange(s.size, dtype=np.float64)
+    fft_length = _next_linear_correlation_fft_length(s.size)
 
     ambiguity_complex = np.empty((doppler.size, delays.size), dtype=np.complex128)
-    for delay_index, delay in enumerate(delays):
-        n = _valid_time_indices_for_delay(int(delay), s.size)
-        products = s[n] * np.conj(s[n - int(delay)])
-        phase = np.exp(
+    for doppler_index, doppler_frequency_hz in enumerate(doppler):
+        doppler_shifted_signal = s * np.exp(
             -1j
             * 2.0
             * math.pi
-            * doppler[:, np.newaxis]
-            * n[np.newaxis, :]
+            * doppler_frequency_hz
+            * sample_indices
             * sample_interval_s,
         )
-        ambiguity_complex[:, delay_index] = phase @ products
+        ambiguity_complex[doppler_index, :] = _linear_correlation_fft_by_delay(
+            doppler_shifted_signal,
+            s,
+            fft_length,
+            delays,
+        )
 
     ambiguity_magnitude = np.abs(ambiguity_complex).astype(np.float64, copy=False)
     peak_magnitude = float(np.max(ambiguity_magnitude))
@@ -121,6 +127,8 @@ def compute_ambiguity_function(
             "correlation_type": "aperiodic",
             "matrix_shape": "doppler_by_delay",
             "normalization": "ambiguity_magnitude / peak_magnitude",
+            "correlation_algorithm": "fft_linear_zero_padded",
+            "fft_length": int(fft_length),
         },
     )
 
@@ -221,6 +229,38 @@ def _valid_time_indices_for_delay(delay_samples: int, num_samples: int) -> npt.N
     n_start = max(0, delay_samples)
     n_stop = min(num_samples, num_samples + delay_samples)
     return np.arange(n_start, n_stop, dtype=int)
+
+
+def _next_linear_correlation_fft_length(num_samples: int) -> int:
+    """返回能容纳长度 N 信号线性相关的 FFT 长度。"""
+    if num_samples < 1:
+        raise AmbiguityFunctionError("num_samples 必须大于等于 1。")
+    return int(next_fast_len(2 * num_samples - 1))
+
+
+def _linear_correlation_fft_by_delay(
+    signal: npt.NDArray[np.complex128],
+    reference: npt.NDArray[np.complex128],
+    fft_length: int,
+    selected_delays: npt.NDArray[np.int_],
+) -> npt.NDArray[np.complex128]:
+    """用补零 FFT 计算线性相关，并按 selected_delays 返回 delay 切片。"""
+    num_samples = signal.size
+    if reference.size != num_samples:
+        raise AmbiguityFunctionError("signal 和 reference 长度必须一致。")
+    if fft_length < 2 * num_samples - 1:
+        raise AmbiguityFunctionError("fft_length 不能小于线性相关所需长度 2N - 1。")
+
+    correlation = ifft(
+        fft(signal, n=fft_length) * np.conj(fft(reference, n=fft_length)),
+        n=fft_length,
+    )
+    shifted_correlation = np.fft.fftshift(correlation)
+    valid_start = fft_length // 2 - (num_samples - 1)
+    valid_stop = valid_start + (2 * num_samples - 1)
+    valid_correlation = shifted_correlation[valid_start:valid_stop]
+    delay_indices = selected_delays + (num_samples - 1)
+    return valid_correlation[delay_indices].astype(np.complex128, copy=False)
 
 
 def _find_negative_crossing(

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from radar_eval_core.evaluation_pipeline import compute_waveform_evaluation
 from radar_eval_core.schemas import EvaluationRequest
 from radar_eval_core.scoring import ScoringConfig
@@ -70,10 +72,34 @@ def test_chart_data_does_not_include_full_ambiguity_matrix() -> None:
     assert 0.0 in heatmap["doppler_hz"]
     assert len(heatmap["magnitude_normalized"]) == len(heatmap["doppler_hz"])
     assert len(heatmap["magnitude_normalized"][0]) == len(heatmap["delay_samples"])
+    assert heatmap["sample_rate_hz"] == pytest.approx(request.waveform.sample_rate_hz)
+    assert len(heatmap["delay_us"]) == len(heatmap["delay_samples"])
+    for delay_sample, delay_us in zip(heatmap["delay_samples"], heatmap["delay_us"], strict=True):
+        assert delay_us == pytest.approx(delay_sample / request.waveform.sample_rate_hz * 1e6)
     assert max(abs(value) for value in heatmap["delay_samples"]) <= 256
     assert heatmap["matrix_shape"] == "doppler_by_delay"
     assert "ambiguity_complex" not in result.chart_data
     assert "ambiguity_magnitude" not in result.chart_data
+
+
+def test_waveform_preview_uses_real_amplitude_not_magnitude() -> None:
+    """测试波形预览使用实部，并且仅在 chart data 中做尾部补零。"""
+    request = _load_request(PROJECT_ROOT / "configs" / "lfm_default.json")
+    scoring_config = _load_scoring_config(PROJECT_ROOT / "configs" / "scoring_default.json")
+
+    result = compute_waveform_evaluation(request, scoring_config)
+    preview = result.chart_data["waveform_preview"]
+
+    assert "real_amplitude" in preview
+    assert "magnitude" not in preview
+    assert preview["zero_padded_for_display"] is True
+    assert preview["preview_duration_s"] == pytest.approx(2.0 * request.waveform.pulse_width_s)
+    tail_values = [
+        value
+        for time_s, value in zip(preview["time_s"], preview["real_amplitude"], strict=True)
+        if time_s >= request.waveform.pulse_width_s
+    ]
+    assert all(abs(value) < 1e-12 for value in tail_values)
 
 
 def _load_request(path: Path) -> EvaluationRequest:

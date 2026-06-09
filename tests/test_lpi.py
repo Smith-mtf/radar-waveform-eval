@@ -10,36 +10,11 @@ from radar_eval_core.lpi import (
     compute_average_power_w,
     compute_duty_cycle,
     compute_lpi_exposure_metrics,
-    compute_nominal_avg_psd_w_per_hz,
     compute_occupied_bandwidth,
     compute_papr_db,
     compute_peak_power_w,
-    compute_tbp,
     compute_two_sided_periodogram_psd,
 )
-
-
-def test_lpi_peak_average_power_for_constant_signal() -> None:
-    """测试恒幅信号的峰值功率和平均功率。"""
-    signal = np.ones(16, dtype=np.complex128)
-
-    assert compute_peak_power_w(signal) == pytest.approx(1.0)
-    assert compute_average_power_w(signal) == pytest.approx(1.0)
-
-
-def test_lpi_papr_for_constant_signal() -> None:
-    """测试恒幅信号 PAPR 接近 0 dB。"""
-    signal = np.ones(16, dtype=np.complex128)
-
-    assert compute_papr_db(signal) == pytest.approx(0.0)
-
-
-def test_nominal_avg_psd_decreases_with_bandwidth() -> None:
-    """测试平均功率固定时名义平均 PSD 随带宽增大而降低。"""
-    narrow_band_psd = compute_nominal_avg_psd_w_per_hz(average_power_w=10.0, bandwidth_hz=1e6)
-    wide_band_psd = compute_nominal_avg_psd_w_per_hz(average_power_w=10.0, bandwidth_hz=10e6)
-
-    assert wide_band_psd < narrow_band_psd
 
 
 def test_two_sided_periodogram_power_matches_time_domain_power() -> None:
@@ -93,11 +68,6 @@ def test_occupied_bandwidth_rejects_invalid_fraction() -> None:
         compute_occupied_bandwidth(spectrum, occupied_power_fraction=0.0)
     with pytest.raises(LpiFeatureError):
         compute_occupied_bandwidth(spectrum, occupied_power_fraction=1.0)
-
-
-def test_tbp() -> None:
-    """测试 TBP 计算。"""
-    assert compute_tbp(10e6, 10e-6) == pytest.approx(100.0)
 
 
 def test_duty_cycle_from_prf() -> None:

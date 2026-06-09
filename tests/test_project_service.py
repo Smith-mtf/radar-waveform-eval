@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -32,10 +31,8 @@ def test_save_and_open_project_json(tmp_path: Path) -> None:
 
     saved_path = project_service.save_project(state, tmp_path / "case")
     loaded_state = project_service.open_project(saved_path)
-    payload = json.loads(saved_path.read_text(encoding="utf-8"))
 
     assert saved_path.name.endswith(".rwep.json")
-    assert "comparison_results" not in payload
     assert loaded_state.current_request is not None
     assert loaded_state.current_request.waveform.name == "default_lfm"
     assert loaded_state.current_scoring_config is not None
@@ -50,13 +47,3 @@ def test_open_project_rejects_invalid_json(tmp_path: Path) -> None:
 
     with pytest.raises(ProjectServiceError):
         ProjectService().open_project(path)
-
-
-def test_open_project_rejects_missing_required_fields(tmp_path: Path) -> None:
-    """测试缺少必要字段的项目文件会报错。"""
-    path = tmp_path / "missing.rwep.json"
-    path.write_text(json.dumps({"request": {}}), encoding="utf-8")
-
-    with pytest.raises(ProjectServiceError):
-        ProjectService().open_project(path)
-

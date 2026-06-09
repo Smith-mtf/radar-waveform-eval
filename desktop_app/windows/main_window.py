@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtCore import QPointF, QRectF, Qt, QThread, Signal
+from PySide6.QtGui import QAction, QCloseEvent, QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -17,8 +18,10 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -100,10 +103,14 @@ QLabel#Breadcrumb {
     color: #dbeafe;
     padding: 9px 12px;
 }
-QFrame#ChartFrame, QFrame#MetricCard, QFrame#PreviewTextFrame {
+QFrame#MetricCard, QFrame#PreviewTextFrame, QFrame#MacroPanel {
     background: #111827;
     border: 1px solid #2f3f55;
     border-radius: 8px;
+}
+QFrame#ChartFrame {
+    background: #0b1220;
+    border: none;
 }
 QLabel#ScoreValue {
     color: #67e8f9;
@@ -115,7 +122,7 @@ QLabel#MetricCardTitle {
 }
 QLabel#MetricCardValue {
     color: #f8fafc;
-    font-size: 18px;
+    font-size: 22px;
     font-weight: 800;
 }
 QPushButton#RunButton {
@@ -358,11 +365,8 @@ class ChartPanel(QFrame):
         self._plot_widget: Any | None = None
         self._fallback_label: QLabel | None = None
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-        title_label = QLabel(title)
-        title_label.setObjectName("MetricCardTitle")
-        layout.addWidget(title_label)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         if pg is None:
             self._fallback_label = QLabel("pyqtgraph 未安装，图表区域暂不可用")
@@ -392,6 +396,8 @@ class ChartPanel(QFrame):
         *,
         x_label: str,
         y_label: str,
+        x_range: tuple[float, float] | None = None,
+        y_range: tuple[float, float] | None = None,
     ) -> None:
         """绘制来自 chart_data 的曲线，不重新计算指标。"""
         if self._plot_widget is None:
@@ -406,12 +412,18 @@ class ChartPanel(QFrame):
             np.asarray(y_values, dtype=float),
             pen=pg.mkPen("#38bdf8", width=2),
         )
+        if x_range is not None:
+            self._plot_widget.setXRange(x_range[0], x_range[1], padding=0)
+        if y_range is not None:
+            self._plot_widget.setYRange(y_range[0], y_range[1], padding=0)
 
     def plot_heatmap(
         self,
         x_values: list[float],
         y_values: list[float],
         matrix: list[list[float]],
+        *,
+        x_label: str = "Delay samples",
     ) -> None:
         """显示来自 chart_data 的模糊函数热力图。"""
         if self._plot_widget is None:
@@ -423,16 +435,23 @@ class ChartPanel(QFrame):
             return
         self._plot_widget.clear()
         self._plot_widget.setTitle("")
-        self._plot_widget.setLabel("bottom", "Delay samples")
+        self._plot_widget.setLabel("bottom", x_label)
         self._plot_widget.setLabel("left", "Doppler Hz")
-        image_item = pg.ImageItem(image.T)
+        try:
+            image_db = _ambiguity_db_image(image)
+        except ValueError:
+            self.show_message("ambiguity heatmap peak is unavailable")
+            return
+        image_item = pg.ImageItem(image_db.T)
+        image_item.setLevels([-60.0, 0.0])
+        image_item.setLookupTable(_ambiguity_colormap_lut())
         self._plot_widget.addItem(image_item)
         if x_values and y_values:
             x_min = float(min(x_values))
             y_min = float(min(y_values))
             x_span = float(max(x_values) - x_min) or 1.0
             y_span = float(max(y_values) - y_min) or 1.0
-            image_item.setRect(x_min, y_min, x_span, y_span)
+            image_item.setRect(QRectF(x_min, y_min, x_span, y_span))
         self._plot_widget.autoRange()
 
 
@@ -448,13 +467,133 @@ class MetricCard(QFrame):
         title_label = QLabel(title)
         title_label.setObjectName("MetricCardTitle")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setSpacing(6)
         layout.addWidget(title_label)
-        layout.addWidget(self._value_label)
+        layout.addStretch(1)
+        layout.addWidget(self._value_label, alignment=Qt.AlignmentFlag.AlignBottom)
 
     def set_value(self, value: str) -> None:
         """更新卡片值。"""
         self._value_label.setText(value)
+
+
+class RadarChartWidget(QWidget):
+    """六维评分雷达图控件，只展示 EvaluationResult 中已有轴得分。"""
+
+    axis_order = [
+        "detection",
+        "resolution",
+        "sidelobe_ambiguity",
+        "anti_jamming",
+        "lpi",
+        "engineering",
+    ]
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """初始化雷达图维度、默认值和暗色主题配色。"""
+        super().__init__(parent)
+        self.setMinimumSize(260, 260)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.dimensions = [
+            "探测性能",
+            "分辨能力",
+            "旁瓣与模糊控制",
+            "抗干扰性能",
+            "低截获暴露特征",
+            "工程可实现性",
+        ]
+        self.values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self.grid_color = QColor(148, 163, 184, 120)
+        self.axis_color = QColor(148, 163, 184, 150)
+        self.data_line_color = QColor(56, 189, 248)
+        self.data_fill_color = QColor(56, 189, 248, 70)
+        self.text_color = QColor(226, 232, 240)
+        self.setToolTip("等待评估结果")
+
+    def update_data(self, new_values: list[float]) -> None:
+        """使用 6 个百分制轴得分刷新雷达图。"""
+        if len(new_values) != 6:
+            return
+        self.values = [float(max(0.0, min(value, 100.0))) for value in new_values]
+        self.update()
+
+    def update_from_axis_scores(self, axis_scores: list[Any]) -> None:
+        """从 EvaluationResult.axis_scores 刷新雷达图，不计算新指标。"""
+        axis_by_id = {getattr(axis, "axis_id", ""): axis for axis in axis_scores}
+        values: list[float] = []
+        tooltip_lines = ["六维评分："]
+        for axis_id, display_name in zip(self.axis_order, self.dimensions, strict=True):
+            axis = axis_by_id.get(axis_id)
+            score = getattr(axis, "score", None)
+            available = bool(getattr(axis, "available", False))
+            if axis is not None and available and score is not None:
+                value = float(score)
+                tooltip_lines.append(f"{display_name}: {value:.2f}")
+            else:
+                value = 0.0
+                reason = getattr(axis, "reason", None) if axis is not None else "结果中缺少该维度"
+                tooltip_lines.append(f"{display_name}: 不可用（{reason or '未说明原因'}）")
+            values.append(value)
+        self.update_data(values)
+        self.setToolTip("\n".join(tooltip_lines))
+
+    def paintEvent(self, event: object) -> None:
+        """绘制六边形网格、维度轴和评分填充区域。"""
+        _ = event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        width, height = self.width(), self.height()
+        center = QPointF(width / 2, height / 2)
+        radius = min(width, height) / 2 * 0.52
+        num_dim = len(self.dimensions)
+        angle_step = 2 * math.pi / num_dim
+
+        painter.setPen(QPen(self.grid_color, 1, Qt.PenStyle.DashLine))
+        for i in range(1, 6):
+            r = radius * (i / 5.0)
+            poly = QPolygonF()
+            for j in range(num_dim):
+                angle = j * angle_step - math.pi / 2
+                poly.append(
+                    QPointF(
+                        center.x() + r * math.cos(angle),
+                        center.y() + r * math.sin(angle),
+                    ),
+                )
+            painter.drawPolygon(poly)
+
+        font = QFont("Microsoft YaHei UI", 9, QFont.Weight.Bold)
+        painter.setFont(font)
+        for j in range(num_dim):
+            angle = j * angle_step - math.pi / 2
+            end_point = QPointF(
+                center.x() + radius * math.cos(angle),
+                center.y() + radius * math.sin(angle),
+            )
+            painter.setPen(QPen(self.axis_color, 1, Qt.PenStyle.SolidLine))
+            painter.drawLine(center, end_point)
+
+            text_radius = radius * 1.2
+            text_x = center.x() + text_radius * math.cos(angle)
+            text_y = center.y() + text_radius * math.sin(angle)
+            painter.setPen(QPen(self.text_color))
+            painter.drawText(int(text_x - 46), int(text_y + 5), self.dimensions[j])
+
+        data_poly = QPolygonF()
+        for j, value in enumerate(self.values):
+            angle = j * angle_step - math.pi / 2
+            val_radius = radius * (value / 100.0)
+            data_poly.append(
+                QPointF(
+                    center.x() + val_radius * math.cos(angle),
+                    center.y() + val_radius * math.sin(angle),
+                ),
+            )
+
+        painter.setPen(QPen(self.data_line_color, 2, Qt.PenStyle.SolidLine))
+        painter.setBrush(self.data_fill_color)
+        painter.drawPolygon(data_poly)
 
 
 class RightWorkspace(QWidget):
@@ -471,6 +610,7 @@ class RightWorkspace(QWidget):
         self.spectrum_chart = ChartPanel("频谱图渲染区")
         self.score_value = QLabel("--")
         self.score_value.setObjectName("ScoreValue")
+        self.radar_chart = RadarChartWidget()
         self.metric_cards = {
             "pd": MetricCard("检测概率 Pd"),
             "range_resolution": MetricCard("距离分辨率"),
@@ -479,7 +619,11 @@ class RightWorkspace(QWidget):
         }
         self.metric_table = QTableWidget(0, 4)
         self.metric_table.setHorizontalHeaderLabels(["指标名称", "计算结果", "单位", "状态/备注"])
-        self.metric_table.horizontalHeader().setStretchLastSection(True)
+        header = self.metric_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(14, 14, 14, 14)
@@ -507,6 +651,7 @@ class RightWorkspace(QWidget):
         """使用 EvaluationResult 刷新看板，不重新计算指标。"""
         self.update_from_request(result.request)
         self.score_value.setText(f"{result.overall_score:.1f}")
+        self.radar_chart.update_from_axis_scores(result.axis_scores)
         metrics = {metric.metric_id: metric for metric in result.raw_metrics}
         self.metric_cards["pd"].set_value(_metric_value_text(metrics.get("detection.pd")))
         self.metric_cards["range_resolution"].set_value(
@@ -523,6 +668,8 @@ class RightWorkspace(QWidget):
     def show_demo_dashboard(self) -> None:
         """显示未评估时的演示表格和占位图。"""
         self.score_value.setText("--")
+        self.radar_chart.update_data([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.radar_chart.setToolTip("等待评估结果")
         for card in self.metric_cards.values():
             card.set_value("-")
         rows = [
@@ -564,21 +711,45 @@ class RightWorkspace(QWidget):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
 
-        top_row = QHBoxLayout()
+        macro_panel = QFrame()
+        macro_panel.setObjectName("MacroPanel")
+        macro_panel.setMaximumHeight(320)
+        macro_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        top_row = QHBoxLayout(macro_panel)
+        top_row.setContentsMargins(12, 12, 12, 12)
+        top_row.setSpacing(12)
         score_card = QFrame()
         score_card.setObjectName("MetricCard")
+        score_card.setMinimumWidth(150)
+        score_card.setMaximumWidth(190)
         score_layout = QVBoxLayout(score_card)
+        score_layout.setContentsMargins(14, 14, 14, 14)
         score_layout.addWidget(QLabel("综合评分"))
+        score_layout.addStretch(1)
         score_layout.addWidget(self.score_value)
-        top_row.addWidget(score_card, stretch=1)
-        for card in self.metric_cards.values():
-            top_row.addWidget(card, stretch=1)
-        layout.addLayout(top_row)
+
+        summary_panel = QWidget()
+        summary_grid = QGridLayout(summary_panel)
+        summary_grid.setContentsMargins(0, 0, 0, 0)
+        summary_grid.setSpacing(12)
+        summary_grid.addWidget(self.metric_cards["pd"], 0, 0)
+        summary_grid.addWidget(self.metric_cards["range_resolution"], 0, 1)
+        summary_grid.addWidget(self.metric_cards["jammed_pd"], 1, 0)
+        summary_grid.addWidget(self.metric_cards["occupied_bandwidth"], 1, 1)
+        summary_grid.setRowStretch(0, 1)
+        summary_grid.setRowStretch(1, 1)
+        summary_grid.setColumnStretch(0, 1)
+        summary_grid.setColumnStretch(1, 1)
+
+        top_row.addWidget(score_card)
+        top_row.addWidget(self.radar_chart, stretch=1)
+        top_row.addWidget(summary_panel, stretch=1)
+        layout.addWidget(macro_panel, stretch=0)
 
         chart_row = QHBoxLayout()
         chart_row.addWidget(self.ambiguity_chart, stretch=1)
         chart_row.addWidget(self.spectrum_chart, stretch=1)
-        layout.addLayout(chart_row, stretch=2)
+        layout.addLayout(chart_row, stretch=3)
         layout.addWidget(self.metric_table, stretch=2)
         return tab
 
@@ -594,21 +765,36 @@ class RightWorkspace(QWidget):
     def _update_charts(self, chart_data: dict[str, Any]) -> None:
         waveform = chart_data.get("waveform_preview")
         if isinstance(waveform, dict):
+            y_values = waveform.get("real_amplitude", waveform.get("magnitude", []))
+            preview_duration_s = waveform.get("preview_duration_s")
+            x_range = (
+                (0.0, float(preview_duration_s))
+                if isinstance(preview_duration_s, int | float)
+                else None
+            )
             self.preview_chart.plot_curve(
                 waveform.get("time_s", []),
-                waveform.get("magnitude", []),
+                y_values,
                 x_label="Time s",
-                y_label="Magnitude",
+                y_label="Amplitude (Real Part)",
+                x_range=x_range,
+                y_range=(-1.5, 1.5),
             )
         else:
             self.preview_chart.show_message("波形预览数据不可用")
 
         heatmap = chart_data.get("ambiguity_heatmap")
         if isinstance(heatmap, dict):
+            x_values = heatmap.get("delay_us")
+            x_label = "Delay us"
+            if not x_values:
+                x_values = heatmap.get("delay_samples", [])
+                x_label = "Delay samples"
             self.ambiguity_chart.plot_heatmap(
-                heatmap.get("delay_samples", []),
+                x_values,
                 heatmap.get("doppler_hz", []),
                 heatmap.get("magnitude_normalized", []),
+                x_label=x_label,
             )
         else:
             self.ambiguity_chart.show_message("模糊函数图数据不可用")
@@ -978,9 +1164,65 @@ def _double_spin(
 def _metric_value_text(metric: RawMetric | None) -> str:
     if metric is None or not metric.available or metric.value is None:
         return "-"
-    if metric.unit:
-        return f"{metric.value:.4g} {metric.unit}"
-    return f"{metric.value:.4g}"
+    value, unit = _display_value_and_unit(metric.value, metric.unit)
+    if unit:
+        return f"{_compact_number(value)} {unit}"
+    return _compact_number(value)
+
+
+def _display_value_and_unit(value: float, unit: str) -> tuple[float, str]:
+    abs_value = abs(value)
+    if unit == "Hz" and abs_value >= 1e6:
+        return value / 1e6, "MHz"
+    if unit == "Hz" and abs_value >= 1e3:
+        return value / 1e3, "kHz"
+    return value, unit
+
+
+def _ambiguity_db_image(image: np.ndarray) -> np.ndarray:
+    """将归一化线性幅度矩阵转换为用于显示的 -60 到 0 dB 矩阵。"""
+    peak = float(np.max(image))
+    if not math.isfinite(peak) or peak <= 0.0:
+        raise ValueError("ambiguity heatmap peak must be positive.")
+    safe_image = np.maximum(image, np.finfo(float).tiny)
+    image_db = 20.0 * np.log10(safe_image / peak)
+    return np.clip(image_db, -60.0, 0.0)
+
+
+def _ambiguity_colormap_lut() -> np.ndarray:
+    """返回模糊函数 dB 热力图使用的伪彩色查找表。"""
+    if pg is not None:
+        try:
+            return pg.colormap.get("viridis").getLookupTable(nPts=256)
+        except Exception:
+            colors = np.array(
+                [
+                    [0, 0, 128],
+                    [0, 128, 255],
+                    [0, 220, 120],
+                    [255, 230, 0],
+                    [255, 0, 0],
+                ],
+                dtype=np.ubyte,
+            )
+            positions = np.linspace(0.0, 1.0, colors.shape[0])
+            return pg.ColorMap(positions, colors).getLookupTable(nPts=256)
+    return np.empty((0, 4), dtype=np.ubyte)
+
+
+def _compact_number(value: float) -> str:
+    if not math.isfinite(value):
+        return str(value)
+    abs_value = abs(value)
+    if abs_value == 0:
+        return "0"
+    if abs_value >= 1000:
+        return f"{value:,.3f}".rstrip("0").rstrip(".")
+    if abs_value >= 1:
+        return f"{value:.3f}".rstrip("0").rstrip(".")
+    if abs_value >= 0.001:
+        return f"{value:.6f}".rstrip("0").rstrip(".")
+    return f"{value:.3e}"
 
 
 def _hz_to_ghz(value: float) -> float:

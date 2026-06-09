@@ -84,12 +84,7 @@ def compute_waveform_evaluation(
         raise EvaluationPipelineError(str(exc)) from exc
 
     chart_data = {
-        "waveform_preview": _series_for_chart(
-            waveform_signal.t,
-            np.abs(waveform_signal.iq),
-            x_key="time_s",
-            y_key="magnitude",
-        ),
+        "waveform_preview": _compute_waveform_preview_chart(request, waveform_signal),
         "zero_doppler_cut": _compute_zero_doppler_chart(waveform_signal.iq),
         "zero_delay_doppler_cut": ambiguity_chart_data,
         "ambiguity_heatmap": _compute_ambiguity_heatmap_chart(request, waveform_signal.iq),
@@ -442,6 +437,33 @@ def _compute_lpi_raw_metrics(request: EvaluationRequest, iq: np.ndarray) -> list
     return raw_metrics
 
 
+def _compute_waveform_preview_chart(
+    request: EvaluationRequest,
+    waveform_signal: Any,
+) -> dict[str, Any]:
+    """生成仅用于 UI 预览的实部波形，并在脉冲尾部补零显示。"""
+    sample_rate_hz = request.waveform.sample_rate_hz
+    pulse_width_s = request.waveform.pulse_width_s
+    preview_duration_s = 2.0 * pulse_width_s
+    total_preview_samples = int(round(preview_duration_s * sample_rate_hz)) + 1
+    if total_preview_samples < waveform_signal.iq.size:
+        raise EvaluationPipelineError("waveform preview 时长不能短于原始波形长度。")
+
+    preview_time_s = np.arange(total_preview_samples, dtype=np.float64) / sample_rate_hz
+    preview_real = np.zeros(total_preview_samples, dtype=np.float64)
+    preview_real[: waveform_signal.iq.size] = np.real(waveform_signal.iq)
+    chart = _series_for_chart(
+        preview_time_s,
+        preview_real,
+        x_key="time_s",
+        y_key="real_amplitude",
+    )
+    chart["pulse_width_s"] = float(pulse_width_s)
+    chart["preview_duration_s"] = float(preview_duration_s)
+    chart["zero_padded_for_display"] = True
+    return chart
+
+
 def _compute_zero_doppler_chart(iq: np.ndarray) -> dict[str, Any]:
     """生成 zero-Doppler cut 的轻量图表数据。"""
     pc = autocorrelation_matched_filter(iq)
@@ -481,12 +503,16 @@ def _compute_ambiguity_heatmap_chart(request: EvaluationRequest, iq: np.ndarray)
         doppler_hz=doppler_hz,
         delay_samples=delay_samples,
     )
+    sample_rate_hz = float(request.waveform.sample_rate_hz)
+    delay_samples_list = [int(value) for value in result.delay_samples]
     return {
-        "delay_samples": [int(value) for value in result.delay_samples],
+        "delay_samples": delay_samples_list,
+        "delay_us": [float(value / sample_rate_hz * 1e6) for value in result.delay_samples],
         "doppler_hz": [float(value) for value in result.doppler_hz],
         "magnitude_normalized": result.ambiguity_magnitude_normalized.tolist(),
         "matrix_shape": "doppler_by_delay",
         "downsampled": True,
+        "sample_rate_hz": sample_rate_hz,
         "delay_window_samples": int(delay_span),
         "doppler_window_hz": float(request.evaluation.doppler_max_hz),
     }

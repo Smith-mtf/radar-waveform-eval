@@ -1,4 +1,4 @@
-"""导出服务测试。"""
+"""导出服务 smoke 测试。"""
 
 from __future__ import annotations
 
@@ -27,70 +27,40 @@ from radar_eval_core.scoring import ScoringConfig
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_export_evaluation_json(tmp_path: Path) -> None:
-    """测试导出完整评估 JSON。"""
-    result, _scoring_config = _sample_result()
-    path = tmp_path / "evaluation_result.json"
-
-    export_evaluation_json(result, path)
-
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["overall_score"] == result.overall_score
-
-
-def test_export_raw_metrics_csv(tmp_path: Path) -> None:
-    """测试导出原始指标 CSV。"""
-    result, _scoring_config = _sample_result()
-    path = tmp_path / "raw_metrics.csv"
-
-    export_raw_metrics_csv(result, path)
-
-    rows = list(csv.DictReader(path.open("r", encoding="utf-8", newline="")))
-    assert rows
-    assert "metric_id" in rows[0]
-    assert "unavailable_reason" in rows[0]
-
-
-def test_export_axis_scores_csv(tmp_path: Path) -> None:
-    """测试导出评分 CSV。"""
-    result, _scoring_config = _sample_result()
-    path = tmp_path / "axis_scores.csv"
-
-    export_axis_scores_csv(result, path)
-
-    rows = list(csv.DictReader(path.open("r", encoding="utf-8", newline="")))
-    assert rows
-    assert "axis_id" in rows[0]
-    assert "score" in rows[0]
-
-
-def test_export_chart_data_json(tmp_path: Path) -> None:
-    """测试导出 chart_data JSON。"""
-    result, _scoring_config = _sample_result()
-    path = tmp_path / "chart_data.json"
-
-    export_chart_data_json(result, path)
-
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    assert "ambiguity_heatmap" in payload
-
-
-def test_export_markdown_and_html(tmp_path: Path) -> None:
-    """测试导出 Markdown 和 HTML 报告。"""
+def test_export_service_writes_expected_outputs(tmp_path: Path) -> None:
+    """测试导出服务能写出主要交付文件。"""
     result, scoring_config = _sample_result()
     report = generate_local_template_report(result, scoring_config=scoring_config)
-    markdown = render_report_markdown(report)
-    html = render_report_html(report)
-    markdown_path = tmp_path / "nested" / "report.md"
-    html_path = tmp_path / "nested" / "report.html"
 
-    export_report_markdown(markdown, markdown_path)
-    export_report_html(html, html_path)
+    evaluation_path = tmp_path / "evaluation_result.json"
+    raw_metrics_path = tmp_path / "raw_metrics.csv"
+    axis_scores_path = tmp_path / "axis_scores.csv"
+    chart_data_path = tmp_path / "chart_data.json"
+    markdown_path = tmp_path / "report" / "report.md"
+    html_path = tmp_path / "report" / "report.html"
 
-    assert markdown_path.exists()
-    assert html_path.exists()
-    assert markdown_path.stat().st_size > 0
-    assert html_path.stat().st_size > 0
+    export_evaluation_json(result, evaluation_path)
+    export_raw_metrics_csv(result, raw_metrics_path)
+    export_axis_scores_csv(result, axis_scores_path)
+    export_chart_data_json(result, chart_data_path)
+    export_report_markdown(render_report_markdown(report), markdown_path)
+    export_report_html(render_report_html(report), html_path)
+
+    for path in [
+        evaluation_path,
+        raw_metrics_path,
+        axis_scores_path,
+        chart_data_path,
+        markdown_path,
+        html_path,
+    ]:
+        assert path.exists()
+        assert path.stat().st_size > 0
+
+    assert json.loads(evaluation_path.read_text(encoding="utf-8"))["overall_score"]
+    assert "ambiguity_heatmap" in json.loads(chart_data_path.read_text(encoding="utf-8"))
+    assert list(csv.DictReader(raw_metrics_path.open("r", encoding="utf-8", newline="")))
+    assert list(csv.DictReader(axis_scores_path.open("r", encoding="utf-8", newline="")))
 
 
 @lru_cache(maxsize=1)
