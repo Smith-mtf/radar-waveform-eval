@@ -92,6 +92,9 @@ def test_waveform_preview_uses_real_amplitude_not_magnitude() -> None:
 
     assert "real_amplitude" in preview
     assert "magnitude" not in preview
+    assert preview["downsampled"] is False
+    assert len(preview["time_s"]) == preview["source_points"]
+    assert len(preview["real_amplitude"]) == preview["source_points"]
     assert preview["zero_padded_for_display"] is True
     assert preview["preview_duration_s"] == pytest.approx(2.0 * request.waveform.pulse_width_s)
     tail_values = [
@@ -100,6 +103,24 @@ def test_waveform_preview_uses_real_amplitude_not_magnitude() -> None:
         if time_s >= request.waveform.pulse_width_s
     ]
     assert all(abs(value) < 1e-12 for value in tail_values)
+
+
+def test_spectrum_chart_uses_full_grid_and_relative_db() -> None:
+    """测试频谱图表数据保留完整频率网格，并提供相对 dB 显示字段。"""
+    request = _load_request(PROJECT_ROOT / "configs" / "lfm_default.json")
+    scoring_config = _load_scoring_config(PROJECT_ROOT / "configs" / "scoring_default.json")
+
+    result = compute_waveform_evaluation(request, scoring_config)
+    spectrum = result.chart_data["spectrum_psd"]
+
+    assert spectrum["downsampled"] is False
+    assert len(spectrum["frequency_hz"]) == spectrum["source_points"]
+    assert len(spectrum["frequency_mhz"]) == spectrum["source_points"]
+    assert len(spectrum["psd_w_per_hz"]) == spectrum["source_points"]
+    assert max(spectrum["psd_w_per_hz"]) > 0.0
+    assert len(spectrum["psd_relative_db"]) == spectrum["source_points"]
+    assert max(spectrum["psd_relative_db"]) == pytest.approx(0.0)
+    assert min(spectrum["psd_relative_db"]) >= -120.0
 
 
 def _load_request(path: Path) -> EvaluationRequest:

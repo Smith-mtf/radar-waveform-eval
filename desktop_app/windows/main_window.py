@@ -801,11 +801,21 @@ class RightWorkspace(QWidget):
 
         spectrum = chart_data.get("spectrum_psd")
         if isinstance(spectrum, dict):
+            frequency_values = spectrum.get("frequency_mhz")
+            frequency_label = "Frequency MHz"
+            if not frequency_values:
+                frequency_values = spectrum.get("frequency_hz", [])
+                frequency_label = "Frequency Hz"
+            psd_values = spectrum.get("psd_relative_db")
+            psd_label = "Relative PSD dB"
+            if not psd_values:
+                psd_values = spectrum.get("psd_w_per_hz", [])
+                psd_label = "PSD W/Hz"
             self.spectrum_chart.plot_curve(
-                spectrum.get("frequency_hz", []),
-                spectrum.get("psd_w_per_hz", []),
-                x_label="Frequency Hz",
-                y_label="PSD W/Hz",
+                frequency_values,
+                psd_values,
+                x_label=frequency_label,
+                y_label=psd_label,
             )
         else:
             self.spectrum_chart.show_message("频谱图数据不可用")

@@ -452,16 +452,15 @@ def _compute_waveform_preview_chart(
     preview_time_s = np.arange(total_preview_samples, dtype=np.float64) / sample_rate_hz
     preview_real = np.zeros(total_preview_samples, dtype=np.float64)
     preview_real[: waveform_signal.iq.size] = np.real(waveform_signal.iq)
-    chart = _series_for_chart(
-        preview_time_s,
-        preview_real,
-        x_key="time_s",
-        y_key="real_amplitude",
-    )
-    chart["pulse_width_s"] = float(pulse_width_s)
-    chart["preview_duration_s"] = float(preview_duration_s)
-    chart["zero_padded_for_display"] = True
-    return chart
+    return {
+        "time_s": [float(value) for value in preview_time_s],
+        "real_amplitude": [float(value) for value in preview_real],
+        "downsampled": False,
+        "source_points": int(preview_time_s.size),
+        "pulse_width_s": float(pulse_width_s),
+        "preview_duration_s": float(preview_duration_s),
+        "zero_padded_for_display": True,
+    }
 
 
 def _compute_zero_doppler_chart(iq: np.ndarray) -> dict[str, Any]:
@@ -521,15 +520,22 @@ def _compute_ambiguity_heatmap_chart(request: EvaluationRequest, iq: np.ndarray)
 def _compute_spectrum_chart(request: EvaluationRequest, iq: np.ndarray) -> dict[str, Any]:
     """生成轻量双边 PSD 图表数据。"""
     spectrum = compute_two_sided_periodogram_psd(iq, request.waveform.sample_rate_hz)
-    chart = _series_for_chart(
-        spectrum.frequency_hz,
-        spectrum.psd_w_per_hz,
-        x_key="frequency_hz",
-        y_key="psd_w_per_hz",
-    )
-    chart["frequency_resolution_hz"] = spectrum.frequency_resolution_hz
-    chart["relative_power_error"] = spectrum.relative_power_error
-    return chart
+    psd_w_per_hz = np.asarray(spectrum.psd_w_per_hz, dtype=np.float64)
+    peak_psd = float(np.max(psd_w_per_hz))
+    if peak_psd <= 0.0:
+        raise EvaluationPipelineError("spectrum PSD 峰值必须大于 0。")
+    psd_relative_db = 10.0 * np.log10(np.maximum(psd_w_per_hz / peak_psd, np.finfo(float).tiny))
+    psd_relative_db = np.clip(psd_relative_db, -120.0, 0.0)
+    return {
+        "frequency_hz": [float(value) for value in spectrum.frequency_hz],
+        "frequency_mhz": [float(value / 1e6) for value in spectrum.frequency_hz],
+        "psd_w_per_hz": [float(value) for value in psd_w_per_hz],
+        "psd_relative_db": [float(value) for value in psd_relative_db],
+        "downsampled": False,
+        "source_points": int(spectrum.frequency_hz.size),
+        "frequency_resolution_hz": spectrum.frequency_resolution_hz,
+        "relative_power_error": spectrum.relative_power_error,
+    }
 
 
 def _build_doppler_grid(request: EvaluationRequest) -> np.ndarray:
