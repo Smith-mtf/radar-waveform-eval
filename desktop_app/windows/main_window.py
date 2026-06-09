@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt, QThread, Signal
+from PySide6.QtCore import QPointF, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -70,6 +70,11 @@ try:
     import pyqtgraph as pg  # type: ignore[import-not-found]
 except Exception:  # pragma: no cover - 依赖同步前允许导入主窗口
     pg = None
+
+try:
+    import pyqtgraph.opengl as gl  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - OpenGL may be unavailable in headless environments.
+    gl = None
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -363,15 +368,20 @@ class ChartPanel(QFrame):
         self.setObjectName("ChartFrame")
         self._title = title
         self._plot_widget: Any | None = None
+        self._gl_widget: Any | None = None
         self._fallback_label: QLabel | None = None
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        self._caption_label = QLabel("")
+        self._caption_label.setStyleSheet("color: #94a3b8; padding: 3px 6px;")
+        self._caption_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._caption_label.hide()
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
 
         if pg is None:
             self._fallback_label = QLabel("pyqtgraph 未安装，图表区域暂不可用")
             self._fallback_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(self._fallback_label, stretch=1)
+            self._layout.addWidget(self._fallback_label, stretch=1)
         else:
             self._plot_widget = pg.PlotWidget(background="#0b1220")
             self._plot_widget.setSizePolicy(
@@ -379,15 +389,20 @@ class ChartPanel(QFrame):
                 QSizePolicy.Policy.Expanding,
             )
             self._plot_widget.showGrid(x=True, y=True, alpha=0.25)
-            layout.addWidget(self._plot_widget, stretch=1)
+            self._layout.addWidget(self._plot_widget, stretch=1)
+        self._layout.addWidget(self._caption_label)
 
     def show_message(self, message: str) -> None:
         """显示不可用提示。"""
+        if self._gl_widget is not None:
+            self._gl_widget.hide()
         if self._plot_widget is not None:
+            self._plot_widget.show()
             self._plot_widget.clear()
             self._plot_widget.setTitle(message, color="#94a3b8")
         if self._fallback_label is not None:
             self._fallback_label.setText(message)
+        self._caption_label.hide()
 
     def plot_curve(
         self,
@@ -403,6 +418,10 @@ class ChartPanel(QFrame):
         if self._plot_widget is None:
             self.show_message(f"{self._title} 数据已准备，当前环境未安装 pyqtgraph")
             return
+        if self._gl_widget is not None:
+            self._gl_widget.hide()
+        self._plot_widget.show()
+        self._caption_label.hide()
         self._plot_widget.clear()
         self._plot_widget.setTitle("")
         self._plot_widget.setLabel("bottom", x_label)
@@ -417,7 +436,7 @@ class ChartPanel(QFrame):
         if y_range is not None:
             self._plot_widget.setYRange(y_range[0], y_range[1], padding=0)
 
-    def plot_heatmap(
+    def plot_ambiguity_surface(
         self,
         x_values: list[float],
         y_values: list[float],
@@ -425,34 +444,90 @@ class ChartPanel(QFrame):
         *,
         x_label: str = "Delay samples",
     ) -> None:
-        """显示来自 chart_data 的模糊函数热力图。"""
-        if self._plot_widget is None:
-            self.show_message(f"{self._title} 数据已准备，当前环境未安装 pyqtgraph")
+        """Render normalized ambiguity magnitude as a -60..0 dB 3D surface."""
+        if pg is None or gl is None:
+            self.show_message("当前环境不支持 pyqtgraph OpenGL 3D 模糊函数图")
             return
+
+        x_axis = np.asarray(x_values, dtype=float)
+        y_axis_hz = np.asarray(y_values, dtype=float)
         image = np.asarray(matrix, dtype=float)
-        if image.ndim != 2 or image.size == 0:
-            self.show_message("模糊函数图数据不可用")
+        if (
+            x_axis.ndim != 1
+            or y_axis_hz.ndim != 1
+            or x_axis.size == 0
+            or y_axis_hz.size == 0
+            or image.ndim != 2
+            or image.shape != (y_axis_hz.size, x_axis.size)
+        ):
+            self.show_message("模糊函数 3D 图数据不可用")
             return
-        self._plot_widget.clear()
-        self._plot_widget.setTitle("")
-        self._plot_widget.setLabel("bottom", x_label)
-        self._plot_widget.setLabel("left", "Doppler Hz")
+
         try:
             image_db = _ambiguity_db_image(image)
         except ValueError:
-            self.show_message("ambiguity heatmap peak is unavailable")
+            self.show_message("ambiguity surface peak is unavailable")
             return
-        image_item = pg.ImageItem(image_db.T)
-        image_item.setLevels([-60.0, 0.0])
-        image_item.setLookupTable(_ambiguity_colormap_lut())
-        self._plot_widget.addItem(image_item)
-        if x_values and y_values:
-            x_min = float(min(x_values))
-            y_min = float(min(y_values))
-            x_span = float(max(x_values) - x_min) or 1.0
-            y_span = float(max(y_values) - y_min) or 1.0
-            image_item.setRect(QRectF(x_min, y_min, x_span, y_span))
-        self._plot_widget.autoRange()
+
+        try:
+            gl_widget = self._ensure_gl_widget()
+        except Exception:
+            self.show_message("当前 OpenGL 环境无法创建 3D 模糊函数图")
+            return
+
+        if self._plot_widget is not None:
+            self._plot_widget.hide()
+        gl_widget.show()
+        self._clear_gl_items(gl_widget)
+
+        y_axis, y_label = _scaled_doppler_axis(y_axis_hz)
+        z_surface = image_db.T.astype(float, copy=False)
+        surface = gl.GLSurfacePlotItem(
+            x=x_axis,
+            y=y_axis,
+            z=z_surface,
+            colors=_ambiguity_surface_colors(z_surface),
+            shader=None,
+            smooth=False,
+        )
+        surface.setGLOptions("opaque")
+        gl_widget.addItem(surface)
+
+        x_span = float(np.ptp(x_axis)) or 1.0
+        y_span = float(np.ptp(y_axis)) or 1.0
+        grid = gl.GLGridItem()
+        grid.setSize(x_span, y_span, 1.0)
+        grid.setSpacing(x_span / 4.0, y_span / 4.0, 1.0)
+        grid.translate(float(np.mean(x_axis)), float(np.mean(y_axis)), -60.0)
+        gl_widget.addItem(grid)
+
+        axis = gl.GLAxisItem()
+        axis.setSize(x_span / 2.0, y_span / 2.0, 30.0)
+        axis.translate(float(np.min(x_axis)), float(np.min(y_axis)), -60.0)
+        gl_widget.addItem(axis)
+
+        camera_distance = max(x_span, y_span, 60.0) * 1.55
+        gl_widget.setCameraPosition(distance=camera_distance, elevation=28, azimuth=-45)
+        self._caption_label.setText(
+            f"3D ambiguity surface: X={x_label}, Y={y_label}, Z=normalized dB",
+        )
+        self._caption_label.show()
+
+    def _ensure_gl_widget(self) -> Any:
+        if self._gl_widget is None:
+            self._gl_widget = gl.GLViewWidget()
+            self._gl_widget.setBackgroundColor("#0b1220")
+            self._gl_widget.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Expanding,
+            )
+            self._layout.insertWidget(0, self._gl_widget, stretch=1)
+        return self._gl_widget
+
+    @staticmethod
+    def _clear_gl_items(gl_widget: Any) -> None:
+        for item in list(getattr(gl_widget, "items", [])):
+            gl_widget.removeItem(item)
 
 
 class MetricCard(QFrame):
@@ -790,7 +865,7 @@ class RightWorkspace(QWidget):
             if not x_values:
                 x_values = heatmap.get("delay_samples", [])
                 x_label = "Delay samples"
-            self.ambiguity_chart.plot_heatmap(
+            self.ambiguity_chart.plot_ambiguity_surface(
                 x_values,
                 heatmap.get("doppler_hz", []),
                 heatmap.get("magnitude_normalized", []),
@@ -1218,6 +1293,28 @@ def _ambiguity_colormap_lut() -> np.ndarray:
             positions = np.linspace(0.0, 1.0, colors.shape[0])
             return pg.ColorMap(positions, colors).getLookupTable(nPts=256)
     return np.empty((0, 4), dtype=np.ubyte)
+
+
+def _ambiguity_surface_colors(image_db: np.ndarray) -> np.ndarray:
+    """Map a -60..0 dB ambiguity surface to flattened OpenGL vertex colors."""
+    lut = _ambiguity_colormap_lut()
+    if lut.size == 0:
+        return np.ones((*image_db.shape, 4), dtype=float)
+    if lut.shape[1] == 3:
+        alpha = np.full((lut.shape[0], 1), 255, dtype=lut.dtype)
+        lut = np.hstack([lut, alpha])
+    color_index = np.clip(((image_db + 60.0) / 60.0 * 255.0).astype(int), 0, 255)
+    return (lut[color_index].astype(float) / 255.0).reshape(-1, 4)
+
+
+def _scaled_doppler_axis(doppler_hz: np.ndarray) -> tuple[np.ndarray, str]:
+    """Return a display-scaled Doppler axis while preserving chart_data values."""
+    max_abs = float(np.max(np.abs(doppler_hz))) if doppler_hz.size else 0.0
+    if max_abs >= 1e6:
+        return doppler_hz / 1e6, "Doppler MHz"
+    if max_abs >= 1e3:
+        return doppler_hz / 1e3, "Doppler kHz"
+    return doppler_hz, "Doppler Hz"
 
 
 def _compact_number(value: float) -> str:

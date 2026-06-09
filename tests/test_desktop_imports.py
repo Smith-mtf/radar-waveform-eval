@@ -17,6 +17,7 @@ from desktop_app.windows.main_window import (
     MainWindow,
     RadarChartWidget,
     _ambiguity_db_image,
+    _ambiguity_surface_colors,
 )
 from radar_eval_core.schemas import EvaluationRequest
 
@@ -56,15 +57,16 @@ def test_main_window_shell_smoke() -> None:
     )
 
 
-def test_ambiguity_heatmap_db_rendering_smoke() -> None:
+def test_ambiguity_surface_db_rendering_smoke() -> None:
     """测试模糊函数热力图 dB 转换和绘制入口可处理零值。"""
     app = QApplication.instance() or QApplication([])
     _ = app
     matrix = np.array([[1.0, 0.0], [0.25, 0.0]], dtype=float)
 
     image_db = _ambiguity_db_image(matrix)
+    colors = _ambiguity_surface_colors(image_db.T)
     chart = ChartPanel("test")
-    chart.plot_heatmap(
+    chart.plot_ambiguity_surface(
         [-1.0, 1.0],
         [-100.0, 100.0],
         matrix.tolist(),
@@ -73,3 +75,5 @@ def test_ambiguity_heatmap_db_rendering_smoke() -> None:
 
     assert np.max(image_db) == 0.0
     assert np.min(image_db) >= -60.0
+    assert colors.shape == (matrix.size, 4)
+    assert not hasattr(chart, "plot_heatmap")
