@@ -18,6 +18,7 @@ from desktop_app.windows.main_window import (
     RadarChartWidget,
     _ambiguity_db_image,
     _ambiguity_surface_colors,
+    _normalized_surface_axis,
 )
 from radar_eval_core.schemas import EvaluationRequest
 
@@ -76,4 +77,6 @@ def test_ambiguity_surface_db_rendering_smoke() -> None:
     assert np.max(image_db) == 0.0
     assert np.min(image_db) >= -60.0
     assert colors.shape == (matrix.size, 4)
+    normalized_axis = _normalized_surface_axis(np.array([-2.0, 0.0, 2.0]))
+    assert np.allclose(normalized_axis, np.array([-1.0, 0.0, 1.0]))
     assert not hasattr(chart, "plot_heatmap")

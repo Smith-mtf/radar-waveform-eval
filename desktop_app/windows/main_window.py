@@ -481,35 +481,39 @@ class ChartPanel(QFrame):
         self._clear_gl_items(gl_widget)
 
         y_axis, y_label = _scaled_doppler_axis(y_axis_hz)
-        z_surface = image_db.T.astype(float, copy=False)
+        x_display = _normalized_surface_axis(x_axis)
+        y_display = _normalized_surface_axis(y_axis)
+        z_surface_db = image_db.T.astype(float, copy=False)
+        z_display = (z_surface_db + 60.0) / 60.0
         surface = gl.GLSurfacePlotItem(
-            x=x_axis,
-            y=y_axis,
-            z=z_surface,
-            colors=_ambiguity_surface_colors(z_surface),
+            x=x_display,
+            y=y_display,
+            z=z_display,
+            colors=_ambiguity_surface_colors(z_surface_db),
             shader=None,
             smooth=False,
         )
         surface.setGLOptions("opaque")
         gl_widget.addItem(surface)
 
-        x_span = float(np.ptp(x_axis)) or 1.0
-        y_span = float(np.ptp(y_axis)) or 1.0
         grid = gl.GLGridItem()
-        grid.setSize(x_span, y_span, 1.0)
-        grid.setSpacing(x_span / 4.0, y_span / 4.0, 1.0)
-        grid.translate(float(np.mean(x_axis)), float(np.mean(y_axis)), -60.0)
+        grid.setSize(2.0, 2.0, 1.0)
+        grid.setSpacing(0.5, 0.5, 1.0)
+        grid.translate(0.0, 0.0, 0.0)
         gl_widget.addItem(grid)
 
         axis = gl.GLAxisItem()
-        axis.setSize(x_span / 2.0, y_span / 2.0, 30.0)
-        axis.translate(float(np.min(x_axis)), float(np.min(y_axis)), -60.0)
+        axis.setSize(1.0, 1.0, 1.0)
+        axis.translate(-1.0, -1.0, 0.0)
         gl_widget.addItem(axis)
 
-        camera_distance = max(x_span, y_span, 60.0) * 1.55
-        gl_widget.setCameraPosition(distance=camera_distance, elevation=28, azimuth=-45)
+        gl_widget.setCameraPosition(distance=4.0, elevation=34, azimuth=-45)
         self._caption_label.setText(
-            f"3D ambiguity surface: X={x_label}, Y={y_label}, Z=normalized dB",
+            "3D ambiguity surface: "
+            f"{x_label} [{_compact_number(float(np.min(x_axis)))}, "
+            f"{_compact_number(float(np.max(x_axis)))}], "
+            f"{y_label} [{_compact_number(float(np.min(y_axis)))}, "
+            f"{_compact_number(float(np.max(y_axis)))}], Z -60..0 dB",
         )
         self._caption_label.show()
 
@@ -1315,6 +1319,17 @@ def _scaled_doppler_axis(doppler_hz: np.ndarray) -> tuple[np.ndarray, str]:
     if max_abs >= 1e3:
         return doppler_hz / 1e3, "Doppler kHz"
     return doppler_hz, "Doppler Hz"
+
+
+def _normalized_surface_axis(values: np.ndarray) -> np.ndarray:
+    """Normalize a physical axis to [-1, 1] for readable 3D OpenGL display."""
+    if values.size == 0:
+        return values.astype(float, copy=True)
+    span = float(np.ptp(values))
+    if span <= 0.0:
+        return np.zeros_like(values, dtype=float)
+    center = float(np.min(values) + span / 2.0)
+    return (values.astype(float, copy=False) - center) / (span / 2.0)
 
 
 def _compact_number(value: float) -> str:
