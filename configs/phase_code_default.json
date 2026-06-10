@@ -3,7 +3,7 @@
     "name": "default_phase_code",
     "waveform_type": "phase_code",
     "carrier_frequency_hz": 10000000000.0,
-    "bandwidth_hz": 10000000.0,
+    "bandwidth_hz": 1000000.0,
     "pulse_width_s": 0.00001,
     "sample_rate_hz": 50000000.0,
     "peak_power_w": 1.0,

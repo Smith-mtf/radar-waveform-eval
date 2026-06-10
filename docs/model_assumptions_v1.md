@@ -4,6 +4,8 @@
 
 当前支持复基带 `rect`、`lfm` 和 `phase_code` 波形。IQ 幅度按 `sqrt(W)` 标定时，`abs(iq) ** 2` 可解释为功率，单位为 W。
 
+用于指标计算的名义带宽按波形类型定义：`lfm` 使用显式扫频带宽，`rect` 使用 `1 / pulse_width_s`，`phase_code` 使用码片率 `code_length / pulse_width_s`。`sample_rate_hz` 仅表示复基带 IQ 采样率。
+
 ## 探测模型
 
 探测性能使用单脉冲匹配滤波平方律检测模型。噪声为复高斯白噪声，目标为非起伏确定幅度、未知相位模型。当前不包含 CFAR、Swerling 起伏、多脉冲积累、复杂杂波或 Monte Carlo 检测曲线。

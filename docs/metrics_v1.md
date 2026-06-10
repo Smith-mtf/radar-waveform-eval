@@ -4,17 +4,19 @@ V1.0 建立波形定义、数据结构、基础工程指标、零多普勒自相
 
 ## 波形定义
 
+`sample_rate_hz` 是复基带 IQ 的离散采样率，只约束时间轴和可表示频率范围，不等同于波形名义带宽。用于工程指标、分辨率和 LPI 指标的 `bandwidth_hz` 按波形类型明确定义。
+
 ### rect
 
-`rect` 表示复基带矩形脉冲。IQ 幅度为 `sqrt(peak_power_w)`，相位为 0。当 IQ 幅度按 `sqrt(W)` 标定时，`mean(abs(iq)^2)` 对应平均功率，单位为 W。
+`rect` 表示复基带矩形脉冲。IQ 幅度为 `sqrt(peak_power_w)`，相位为 0。当 IQ 幅度按 `sqrt(W)` 标定时，`mean(abs(iq)^2)` 对应平均功率，单位为 W。矩形脉冲的名义带宽不手填，按脉宽派生为 `bandwidth_hz = 1 / pulse_width_s`，对应距离分辨率近似 `c * pulse_width_s / 2`。
 
 ### lfm
 
-`lfm` 表示复基带线性调频脉冲。时间轴定义为 `t = arange(total_samples) / sample_rate_hz`，中心化时间定义为 `t_centered = t - pulse_width_s / 2`。调频率为 `k = bandwidth_hz / pulse_width_s`，相位为 `phi(t) = pi * k * t_centered^2`。该定义对应复基带瞬时频率从约 `-bandwidth_hz / 2` 扫到 `+bandwidth_hz / 2`。
+`lfm` 表示复基带线性调频脉冲。`bandwidth_hz` 为显式输入的扫频带宽。时间轴定义为 `t = arange(total_samples) / sample_rate_hz`，中心化时间定义为 `t_centered = t - pulse_width_s / 2`。调频率为 `k = bandwidth_hz / pulse_width_s`，相位为 `phi(t) = pi * k * t_centered^2`。该定义对应复基带瞬时频率从约 `-bandwidth_hz / 2` 扫到 `+bandwidth_hz / 2`。
 
 ### phase_code
 
-`phase_code` 表示二相相位编码复基带脉冲。输入码序列可以是 `-1/1` 或 `0/1`，生成时统一转换为 `-1/1`：`1` 表示相位 0，`-1` 表示相位 pi。`total_samples = sample_rate_hz * pulse_width_s` 必须为整数，并且必须能被 `code_length` 整除。
+`phase_code` 表示二相相位编码复基带脉冲。输入码序列可以是 `-1/1` 或 `0/1`，生成时统一转换为 `-1/1`：`1` 表示相位 0，`-1` 表示相位 pi。`total_samples = sample_rate_hz * pulse_width_s` 必须为整数，并且必须能被 `code_length` 整除。相位编码波形的名义带宽不手填，按码片率派生为 `bandwidth_hz = code_length / pulse_width_s = 1 / chip_duration_s`。
 
 ## 工程指标定义
 

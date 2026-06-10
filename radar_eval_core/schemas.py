@@ -9,6 +9,47 @@ import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel, Field, model_validator
 
+WaveformType = Literal["rect", "lfm", "phase_code"]
+
+
+def derive_nominal_bandwidth_hz(
+    waveform_type: WaveformType,
+    pulse_width_s: float,
+    phase_code: list[int] | None = None,
+    explicit_bandwidth_hz: float | None = None,
+) -> float:
+    """按波形类型返回用于指标计算的名义带宽。"""
+    if pulse_width_s <= 0:
+        raise ValueError("pulse_width_s 必须大于 0。")
+
+    if waveform_type == "lfm":
+        if explicit_bandwidth_hz is None or explicit_bandwidth_hz <= 0:
+            raise ValueError("lfm 波形必须提供大于 0 的 bandwidth_hz。")
+        return float(explicit_bandwidth_hz)
+
+    if waveform_type == "rect":
+        return float(1.0 / pulse_width_s)
+
+    if waveform_type == "phase_code":
+        code = phase_code
+        _validate_binary_phase_code(code)
+        assert code is not None
+        return float(len(code) / pulse_width_s)
+
+    raise ValueError(f"不支持的波形类型: {waveform_type}")
+
+
+def _validate_binary_phase_code(phase_code: list[int] | None) -> None:
+    """校验二相相位码为完整的 0/1 或 -1/1 序列。"""
+    if phase_code is None:
+        raise ValueError("phase_code 波形必须提供相位编码序列。")
+    if len(phase_code) < 2:
+        raise ValueError("phase_code 长度必须至少为 2。")
+
+    unique_values = set(phase_code)
+    if unique_values not in ({0, 1}, {-1, 1}):
+        raise ValueError("phase_code 只允许使用完整的 0/1 或 -1/1 二相编码。")
+
 
 @dataclass(slots=True)
 class WaveformSignal:
@@ -23,7 +64,7 @@ class WaveformSignal:
 class WaveformConfig(BaseModel):
     """波形基础配置。"""
 
-    waveform_type: Literal["rect", "lfm", "phase_code"] = Field(
+    waveform_type: WaveformType = Field(
         default="lfm",
         description="波形类型",
     )
@@ -41,16 +82,19 @@ class WaveformConfig(BaseModel):
         if self.waveform_type != "phase_code":
             if self.phase_code is not None:
                 raise ValueError("phase_code 仅允许用于 phase_code 波形。")
+            self.bandwidth_hz = derive_nominal_bandwidth_hz(
+                self.waveform_type,
+                self.pulse_width_s,
+                explicit_bandwidth_hz=self.bandwidth_hz,
+            )
             return self
 
-        if self.phase_code is None:
-            raise ValueError("phase_code 波形必须提供相位编码序列。")
-        if len(self.phase_code) < 2:
-            raise ValueError("phase_code 长度必须至少为 2。")
-
-        unique_values = set(self.phase_code)
-        if unique_values not in ({0, 1}, {-1, 1}):
-            raise ValueError("phase_code 只允许使用完整的 0/1 或 -1/1 二相编码。")
+        self.bandwidth_hz = derive_nominal_bandwidth_hz(
+            self.waveform_type,
+            self.pulse_width_s,
+            phase_code=self.phase_code,
+            explicit_bandwidth_hz=self.bandwidth_hz,
+        )
 
         return self
 

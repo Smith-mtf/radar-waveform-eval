@@ -26,11 +26,11 @@ uv run python -m desktop_app.main
 - 波形类型：`rect`、`lfm`、`phase_code`
 - 名称
 - 载频
-- 带宽
+- 带宽：仅 `lfm` 手填；`rect` 按 `1 / pulse_width_s` 派生；`phase_code` 按 `code_length / pulse_width_s` 派生
 - 脉宽
-- 采样率
+- 采样率：用于离散化复基带 IQ，不等同于编码波形带宽
 - 峰值功率
-- 相位码序列
+- 相位码序列：仅 `phase_code` 显示并填写
 
 页面只更新评估请求，不计算任何雷达指标。
 

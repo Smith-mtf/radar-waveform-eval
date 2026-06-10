@@ -11,6 +11,11 @@ import numpy.typing as npt
 from .schemas import WaveformConfig, WaveformSignal
 
 _SAMPLE_COUNT_ATOL = 1e-9
+_BANDWIDTH_DEFINITIONS = {
+    "rect": "rect_derived_1_over_pulse_width",
+    "lfm": "explicit_lfm_sweep_bandwidth",
+    "phase_code": "phase_code_derived_code_rate",
+}
 
 
 def generate_waveform(config: WaveformConfig) -> WaveformSignal:
@@ -74,6 +79,7 @@ def _base_metadata(config: WaveformConfig, total_samples: int) -> dict[str, Any]
         "waveform_type": config.waveform_type,
         "carrier_frequency_hz": config.carrier_frequency_hz,
         "bandwidth_hz": config.bandwidth_hz,
+        "bandwidth_definition": _BANDWIDTH_DEFINITIONS[config.waveform_type],
         "pulse_width_s": config.pulse_width_s,
         "sample_rate_hz": config.sample_rate_hz,
         "peak_power_w": config.peak_power_w,
@@ -119,6 +125,7 @@ def _generate_phase_code(
         "code_length": code_length,
         "samples_per_chip": samples_per_chip,
         "chip_duration_s": chip_duration_s,
+        "chip_rate_hz": config.bandwidth_hz,
     }
     return iq, metadata
 

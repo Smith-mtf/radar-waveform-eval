@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QPushButton, QSplitter, QTabWidget
 from desktop_app.app_state import AppState
 from desktop_app.windows.main_window import (
     ChartPanel,
+    LeftParameterPanel,
     MainWindow,
     RadarChartWidget,
     _ambiguity_db_image,
@@ -56,6 +57,43 @@ def test_main_window_shell_smoke() -> None:
         button.objectName() == "RunButton"
         for button in window.findChildren(QPushButton)
     )
+
+
+def test_waveform_parameter_visibility_follows_waveform_type() -> None:
+    """测试波形参数控件按波形类型隐藏不适用项。"""
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    panel = LeftParameterPanel()
+
+    panel.waveform_type_combo.setCurrentText("rect")
+    assert panel.bandwidth_mhz.isHidden()
+    assert panel.phase_code_edit.isHidden()
+    assert not panel.derived_bandwidth_label.isHidden()
+
+    panel.waveform_type_combo.setCurrentText("lfm")
+    assert not panel.bandwidth_mhz.isHidden()
+    assert panel.phase_code_edit.isHidden()
+    assert panel.derived_bandwidth_label.isHidden()
+
+    panel.waveform_type_combo.setCurrentText("phase_code")
+    assert panel.bandwidth_mhz.isHidden()
+    assert not panel.phase_code_edit.isHidden()
+    assert not panel.derived_bandwidth_label.isHidden()
+
+
+def test_derived_bandwidth_label_updates_for_phase_code() -> None:
+    """测试 phase_code 派生带宽随码长和脉宽刷新。"""
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    panel = LeftParameterPanel()
+
+    panel.waveform_type_combo.setCurrentText("phase_code")
+    panel.pulse_width_us.setValue(50.0)
+    panel.phase_code_edit.setText("1,1,1,-1,-1,1,-1,1,-1,1")
+    assert panel.derived_bandwidth_label.text() == "200 kHz"
+
+    panel.phase_code_edit.setText("1,-1")
+    assert panel.derived_bandwidth_label.text() == "40 kHz"
 
 
 def test_ambiguity_surface_db_rendering_smoke() -> None:

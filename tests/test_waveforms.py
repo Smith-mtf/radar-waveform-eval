@@ -25,6 +25,8 @@ def test_rect_waveform_power_matches_peak_power() -> None:
     assert signal.iq.dtype == np.complex128
     assert compute_average_power(signal.iq) == pytest.approx(4.0)
     assert np.allclose(signal.iq, 2.0 + 0.0j)
+    assert signal.metadata["bandwidth_hz"] == pytest.approx(100_000.0)
+    assert signal.metadata["bandwidth_definition"] == "rect_derived_1_over_pulse_width"
 
 
 def test_lfm_waveform_metadata_and_phase_definition() -> None:
@@ -46,6 +48,8 @@ def test_lfm_waveform_metadata_and_phase_definition() -> None:
     assert signal.metadata["chirp_rate_hz_per_s"] == pytest.approx(1e11)
     assert signal.metadata["start_frequency_hz_baseband"] == pytest.approx(-1e6)
     assert signal.metadata["end_frequency_hz_baseband"] == pytest.approx(1e6)
+    assert signal.metadata["bandwidth_hz"] == pytest.approx(2e6)
+    assert signal.metadata["bandwidth_definition"] == "explicit_lfm_sweep_bandwidth"
     assert "time_centered_definition" in signal.metadata
 
 
@@ -67,6 +71,9 @@ def test_phase_code_waveform_accepts_pm_one_code() -> None:
     assert signal.metadata["code_length"] == 4
     assert signal.metadata["samples_per_chip"] == 16
     assert signal.metadata["chip_duration_s"] == pytest.approx(2e-6)
+    assert signal.metadata["chip_rate_hz"] == pytest.approx(500_000.0)
+    assert signal.metadata["bandwidth_hz"] == pytest.approx(500_000.0)
+    assert signal.metadata["bandwidth_definition"] == "phase_code_derived_code_rate"
 
 
 def test_phase_code_waveform_accepts_zero_one_code() -> None:

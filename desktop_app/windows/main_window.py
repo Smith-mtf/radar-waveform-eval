@@ -6,7 +6,7 @@ import json
 import math
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from PySide6.QtCore import QPointF, Qt, QThread, Signal
@@ -63,6 +63,8 @@ from radar_eval_core.schemas import (
     RawMetric,
     ScenarioConfig,
     WaveformConfig,
+    WaveformType,
+    derive_nominal_bandwidth_hz,
 )
 from radar_eval_core.scoring import ScoringConfig
 
@@ -222,6 +224,7 @@ class LeftParameterPanel(QFrame):
         self.prf_hz.setValue(settings.prf_hz or 1000.0)
         self.jammer_enabled.setChecked(jammer.enabled and jammer.jammer_type == "noise")
         self.jsr_db.setValue(jammer.jammer_to_signal_ratio_db)
+        self._update_waveform_parameter_visibility()
 
     def build_request(self, base_request: EvaluationRequest | None) -> EvaluationRequest:
         """根据表单构造新的 EvaluationRequest，不计算任何雷达指标。"""
@@ -270,14 +273,20 @@ class LeftParameterPanel(QFrame):
 
     def _build_controls(self) -> None:
         self.waveform_type_combo = QComboBox()
+        self.waveform_type_combo.setObjectName("WaveformTypeCombo")
         self.waveform_type_combo.addItems(["rect", "lfm", "phase_code"])
         self.name_edit = QLineEdit()
         self.carrier_frequency_ghz = _double_spin(0.001, 1000.0, " GHz", 3, 10.0)
         self.bandwidth_mhz = _double_spin(0.001, 100000.0, " MHz", 3, 20.0)
+        self.bandwidth_mhz.setObjectName("EditableBandwidthMHz")
+        self.derived_bandwidth_label = QLabel("")
+        self.derived_bandwidth_label.setObjectName("DerivedBandwidthLabel")
+        self.derived_bandwidth_label.setStyleSheet("color: #cbd5e1; padding-left: 4px;")
         self.pulse_width_us = _double_spin(0.001, 1000000.0, " us", 3, 20.0)
         self.sample_rate_mhz = _double_spin(0.001, 100000.0, " MHz", 3, 100.0)
         self.peak_power_w = _double_spin(0.001, 1e9, " W", 3, 1.0)
         self.phase_code_edit = QLineEdit()
+        self.phase_code_edit.setObjectName("PhaseCodeEdit")
         self.phase_code_edit.setPlaceholderText("1,1,1,-1,-1,1,-1")
 
         self.target_range_km = _double_spin(0.001, 1e6, " km", 3, 50.0)
@@ -293,6 +302,7 @@ class LeftParameterPanel(QFrame):
         self.jammer_enabled = QCheckBox("启用宽带噪声压制干扰")
         self.jsr_db = _double_spin(-120.0, 120.0, " dB", 3, 3.0)
 
+        self._waveform_row_labels: dict[QWidget, QLabel] = {}
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setContentsMargins(12, 12, 12, 12)
@@ -317,19 +327,82 @@ class LeftParameterPanel(QFrame):
         root_layout.addWidget(scroll_area, stretch=1)
         root_layout.addWidget(self.start_button)
 
+        self.waveform_type_combo.currentTextChanged.connect(
+            lambda _text: self._update_waveform_parameter_visibility(),
+        )
+        self.pulse_width_us.valueChanged.connect(
+            lambda _value: self._refresh_derived_bandwidth_label(),
+        )
+        self.phase_code_edit.textChanged.connect(
+            lambda _text: self._refresh_derived_bandwidth_label(),
+        )
+        self._update_waveform_parameter_visibility()
+
     def _build_waveform_group(self) -> QGroupBox:
         group = QGroupBox("波形定义")
         form = QFormLayout(group)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.addRow("波形类型", self.waveform_type_combo)
-        form.addRow("名称", self.name_edit)
-        form.addRow("载频", self.carrier_frequency_ghz)
-        form.addRow("带宽", self.bandwidth_mhz)
-        form.addRow("脉宽", self.pulse_width_us)
-        form.addRow("采样率", self.sample_rate_mhz)
-        form.addRow("峰值功率", self.peak_power_w)
-        form.addRow("相位码", self.phase_code_edit)
+        self._add_waveform_row(form, "波形类型", self.waveform_type_combo)
+        self._add_waveform_row(form, "名称", self.name_edit)
+        self._add_waveform_row(form, "载频", self.carrier_frequency_ghz)
+        self._add_waveform_row(form, "带宽", self.bandwidth_mhz)
+        self._add_waveform_row(form, "带宽", self.derived_bandwidth_label)
+        self._add_waveform_row(form, "脉宽", self.pulse_width_us)
+        self._add_waveform_row(form, "采样率", self.sample_rate_mhz)
+        self._add_waveform_row(form, "峰值功率", self.peak_power_w)
+        self._add_waveform_row(form, "相位码", self.phase_code_edit)
         return group
+
+    def _add_waveform_row(self, form: QFormLayout, label_text: str, field: QWidget) -> None:
+        """添加波形表单行，并记录标签便于按波形类型隐藏。"""
+        form.addRow(label_text, field)
+        label = form.labelForField(field)
+        if isinstance(label, QLabel):
+            self._waveform_row_labels[field] = label
+
+    def _set_waveform_row_visible(self, field: QWidget, visible: bool) -> None:
+        field.setVisible(visible)
+        label = self._waveform_row_labels.get(field)
+        if label is not None:
+            label.setVisible(visible)
+
+    def _update_waveform_parameter_visibility(self) -> None:
+        waveform_type = self.waveform_type_combo.currentText()
+        self._set_waveform_row_visible(self.bandwidth_mhz, waveform_type == "lfm")
+        self._set_waveform_row_visible(
+            self.derived_bandwidth_label,
+            waveform_type in {"rect", "phase_code"},
+        )
+        self._set_waveform_row_visible(self.phase_code_edit, waveform_type == "phase_code")
+        self._refresh_derived_bandwidth_label()
+
+    def _refresh_derived_bandwidth_label(self) -> None:
+        waveform_type = self.waveform_type_combo.currentText()
+        if waveform_type == "lfm":
+            self.derived_bandwidth_label.setText("")
+            return
+
+        phase_code: list[int] | None = None
+        if waveform_type == "phase_code":
+            try:
+                phase_code = self._parse_phase_code_text()
+            except ValueError:
+                self.derived_bandwidth_label.setText("待填写有效相位码")
+                return
+
+        try:
+            waveform_type_value = cast(WaveformType, waveform_type)
+            bandwidth_hz = derive_nominal_bandwidth_hz(
+                waveform_type_value,
+                _us_to_s(self.pulse_width_us.value()),
+                phase_code=phase_code,
+                explicit_bandwidth_hz=_mhz_to_hz(self.bandwidth_mhz.value()),
+            )
+        except ValueError:
+            self.derived_bandwidth_label.setText("无法计算")
+            return
+
+        self.derived_bandwidth_label.setText(_frequency_text_from_hz(bandwidth_hz))
 
     def _build_scenario_group(self) -> QGroupBox:
         group = QGroupBox("场景与环境")
@@ -350,13 +423,19 @@ class LeftParameterPanel(QFrame):
     def _phase_code_for_current_waveform(self) -> list[int] | None:
         if self.waveform_type_combo.currentText() != "phase_code":
             return None
+        return self._parse_phase_code_text()
+
+    def _parse_phase_code_text(self) -> list[int]:
         text = self.phase_code_edit.text().strip()
         if not text:
             raise ValueError("phase_code 波形必须填写相位码序列。")
         try:
-            return [int(part.strip()) for part in text.split(",") if part.strip()]
+            phase_code = [int(part.strip()) for part in text.split(",") if part.strip()]
         except ValueError as exc:
             raise ValueError("相位码只能包含整数，并使用英文逗号分隔。") from exc
+        if not phase_code:
+            raise ValueError("phase_code 波形必须填写相位码序列。")
+        return phase_code
 
 
 class ChartPanel(QFrame):
@@ -1257,6 +1336,11 @@ def _metric_value_text(metric: RawMetric | None) -> str:
     if unit:
         return f"{_compact_number(value)} {unit}"
     return _compact_number(value)
+
+
+def _frequency_text_from_hz(value_hz: float) -> str:
+    value, unit = _display_value_and_unit(value_hz, "Hz")
+    return f"{_compact_number(value)} {unit}"
 
 
 def _display_value_and_unit(value: float, unit: str) -> tuple[float, str]:
