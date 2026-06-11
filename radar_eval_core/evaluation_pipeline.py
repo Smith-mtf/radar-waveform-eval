@@ -39,9 +39,8 @@ from .schemas import EvaluationRequest, EvaluationResult, RawMetric
 from .scoring import ScoringConfig, ScoringError, compute_axis_scores, compute_total_score
 from .waveforms import generate_waveform
 
-AMBIGUITY_HEATMAP_DELAY_SPAN_SAMPLES = 256
-AMBIGUITY_HEATMAP_DELAY_POINTS = 129
-AMBIGUITY_HEATMAP_DOPPLER_POINTS = 81
+AMBIGUITY_HEATMAP_DELAY_POINTS = 257
+AMBIGUITY_HEATMAP_DOPPLER_POINTS = 257
 
 
 class EvaluationPipelineError(ValueError):
@@ -480,20 +479,20 @@ def _compute_zero_doppler_chart(iq: np.ndarray) -> dict[str, Any]:
 def _compute_ambiguity_heatmap_chart(request: EvaluationRequest, iq: np.ndarray) -> dict[str, Any]:
     """生成轻量二维模糊函数热力图数据。"""
     max_delay = iq.size - 1
-    delay_span = min(max_delay, AMBIGUITY_HEATMAP_DELAY_SPAN_SAMPLES)
-    delay_count = min(AMBIGUITY_HEATMAP_DELAY_POINTS, 2 * delay_span + 1)
+    delay_count = min(AMBIGUITY_HEATMAP_DELAY_POINTS, 2 * max_delay + 1)
     if delay_count % 2 == 0:
         delay_count -= 1
     delay_samples = np.unique(
-        np.round(np.linspace(-delay_span, delay_span, delay_count)).astype(int),
+        np.round(np.linspace(-max_delay, max_delay, delay_count)).astype(int),
     )
     if not np.any(delay_samples == 0):
         delay_samples = np.sort(
             np.unique(np.concatenate([delay_samples, np.array([0], dtype=int)])),
         )
+    doppler_window_hz, doppler_window_source = _ambiguity_heatmap_doppler_window(request)
     doppler_hz = np.linspace(
-        -request.evaluation.doppler_max_hz,
-        request.evaluation.doppler_max_hz,
+        -doppler_window_hz,
+        doppler_window_hz,
         AMBIGUITY_HEATMAP_DOPPLER_POINTS,
     )
     result = compute_ambiguity_function(
@@ -512,9 +511,36 @@ def _compute_ambiguity_heatmap_chart(request: EvaluationRequest, iq: np.ndarray)
         "matrix_shape": "doppler_by_delay",
         "downsampled": True,
         "sample_rate_hz": sample_rate_hz,
-        "delay_window_samples": int(delay_span),
-        "doppler_window_hz": float(request.evaluation.doppler_max_hz),
+        "delay_window_samples": int(max_delay),
+        "delay_window_source": "full_pulse_width",
+        "doppler_window_hz": float(doppler_window_hz),
+        "doppler_window_source": doppler_window_source,
+        "display_model": "discrete_fft_ambiguity_samples",
     }
+
+
+def _ambiguity_heatmap_doppler_window(request: EvaluationRequest) -> tuple[float, str]:
+    """按波形类型选择模糊函数图显示用 Doppler 窗口。"""
+    waveform = request.waveform
+    if waveform.waveform_type == "rect":
+        requested_window_hz = 10.0 / waveform.pulse_width_s
+        source = "rect_10_over_pulse_width"
+    elif waveform.waveform_type == "lfm":
+        requested_window_hz = waveform.bandwidth_hz
+        source = "lfm_bandwidth"
+    elif waveform.waveform_type == "phase_code":
+        requested_window_hz = 6.0 / waveform.pulse_width_s
+        source = "phase_code_6_over_pulse_width"
+    else:
+        raise EvaluationPipelineError(f"不支持的波形类型: {waveform.waveform_type}")
+
+    nyquist_doppler_hz = waveform.sample_rate_hz / 2.0
+    doppler_window_hz = min(requested_window_hz, nyquist_doppler_hz)
+    if doppler_window_hz <= 0:
+        raise EvaluationPipelineError("ambiguity heatmap Doppler 窗口必须大于 0。")
+    if doppler_window_hz < requested_window_hz:
+        source = f"{source}_clipped_to_nyquist"
+    return float(doppler_window_hz), source
 
 
 def _compute_spectrum_chart(request: EvaluationRequest, iq: np.ndarray) -> dict[str, Any]:

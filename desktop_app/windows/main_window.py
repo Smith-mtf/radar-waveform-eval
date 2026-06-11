@@ -523,7 +523,7 @@ class ChartPanel(QFrame):
         *,
         x_label: str = "Delay samples",
     ) -> None:
-        """Render normalized ambiguity magnitude as a -60..0 dB 3D surface."""
+        """绘制归一化模糊函数幅度曲面，并用 dB 颜色增强旁瓣层次。"""
         if pg is None or gl is None:
             self.show_message("当前环境不支持 pyqtgraph OpenGL 3D 模糊函数图")
             return
@@ -562,12 +562,12 @@ class ChartPanel(QFrame):
         y_axis, y_label = _scaled_doppler_axis(y_axis_hz)
         x_display = _normalized_surface_axis(x_axis)
         y_display = _normalized_surface_axis(y_axis)
+        z_surface = np.clip(image.T.astype(float, copy=False), 0.0, 1.0)
         z_surface_db = image_db.T.astype(float, copy=False)
-        z_display = (z_surface_db + 60.0) / 60.0
         surface = gl.GLSurfacePlotItem(
             x=x_display,
             y=y_display,
-            z=z_display,
+            z=z_surface,
             colors=_ambiguity_surface_colors(z_surface_db),
             shader=None,
             smooth=False,
@@ -592,7 +592,7 @@ class ChartPanel(QFrame):
             f"{x_label} [{_compact_number(float(np.min(x_axis)))}, "
             f"{_compact_number(float(np.max(x_axis)))}], "
             f"{y_label} [{_compact_number(float(np.min(y_axis)))}, "
-            f"{_compact_number(float(np.max(y_axis)))}], Z -60..0 dB",
+            f"{_compact_number(float(np.max(y_axis)))}], Z |chi| 0..1, color -60..0 dB",
         )
         self._caption_label.show()
 

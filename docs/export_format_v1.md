@@ -43,7 +43,7 @@
 
 ## chart_data.json
 
-图表数据导出。包含波形预览、zero-Doppler cut、zero-delay Doppler cut、模糊函数热力图数据和频谱 PSD 数据。该文件用于结果复查和界面图表重建，不包含完整二维模糊函数矩阵。
+图表数据导出。包含波形预览、zero-Doppler cut、zero-delay Doppler cut、模糊函数热力图数据和频谱 PSD 数据。该文件用于结果复查和界面图表重建，不包含完整二维模糊函数矩阵。模糊函数热力图使用完整脉冲时延范围的抽样，显示网格上限为 `257 x 257`，并按波形类型记录 `delay_window_source`、`doppler_window_hz`、`doppler_window_source` 和 `display_model`。当前显示矩阵使用算法核心的离散 FFT 模糊函数定义。
 
 ## report.md
 

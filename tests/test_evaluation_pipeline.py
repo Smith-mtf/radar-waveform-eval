@@ -72,14 +72,36 @@ def test_chart_data_does_not_include_full_ambiguity_matrix() -> None:
     assert 0.0 in heatmap["doppler_hz"]
     assert len(heatmap["magnitude_normalized"]) == len(heatmap["doppler_hz"])
     assert len(heatmap["magnitude_normalized"][0]) == len(heatmap["delay_samples"])
+    assert len(heatmap["delay_samples"]) == 257
+    assert len(heatmap["doppler_hz"]) == 257
     assert heatmap["sample_rate_hz"] == pytest.approx(request.waveform.sample_rate_hz)
     assert len(heatmap["delay_us"]) == len(heatmap["delay_samples"])
     for delay_sample, delay_us in zip(heatmap["delay_samples"], heatmap["delay_us"], strict=True):
         assert delay_us == pytest.approx(delay_sample / request.waveform.sample_rate_hz * 1e6)
-    assert max(abs(value) for value in heatmap["delay_samples"]) <= 256
+    total_samples = int(round(request.waveform.sample_rate_hz * request.waveform.pulse_width_s))
+    assert max(abs(value) for value in heatmap["delay_samples"]) == total_samples - 1
+    assert heatmap["delay_window_source"] == "full_pulse_width"
+    assert heatmap["doppler_window_hz"] == pytest.approx(request.waveform.bandwidth_hz)
+    assert heatmap["doppler_window_source"] == "lfm_bandwidth"
+    assert heatmap["display_model"] == "discrete_fft_ambiguity_samples"
     assert heatmap["matrix_shape"] == "doppler_by_delay"
     assert "ambiguity_complex" not in result.chart_data
     assert "ambiguity_magnitude" not in result.chart_data
+
+
+def test_phase_code_ambiguity_heatmap_uses_barker_style_doppler_window() -> None:
+    """测试 phase_code 模糊函数图使用类似 Barker 示例的 Doppler 显示窗口。"""
+    request = _load_request(PROJECT_ROOT / "configs" / "phase_code_default.json")
+    scoring_config = _load_scoring_config(PROJECT_ROOT / "configs" / "scoring_default.json")
+
+    result = compute_waveform_evaluation(request, scoring_config)
+    heatmap = result.chart_data["ambiguity_heatmap"]
+
+    assert heatmap["doppler_window_hz"] == pytest.approx(6.0 / request.waveform.pulse_width_s)
+    assert heatmap["doppler_window_source"] == "phase_code_6_over_pulse_width"
+    assert heatmap["display_model"] == "discrete_fft_ambiguity_samples"
+    assert len(heatmap["delay_samples"]) == 257
+    assert len(heatmap["doppler_hz"]) == 257
 
 
 def test_waveform_preview_uses_real_amplitude_not_magnitude() -> None:
