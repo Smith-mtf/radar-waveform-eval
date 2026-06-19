@@ -59,7 +59,8 @@ def test_phase_code_waveform_accepts_pm_one_code() -> None:
         WaveformConfig(
             waveform_type="phase_code",
             sample_rate_hz=8e6,
-            pulse_width_s=8e-6,
+            pulse_width_s=2e-6,
+            peak_power_w=1.0,
             phase_code=[1, -1, 1, -1],
         ),
     )
@@ -74,6 +75,9 @@ def test_phase_code_waveform_accepts_pm_one_code() -> None:
     assert signal.metadata["chip_rate_hz"] == pytest.approx(500_000.0)
     assert signal.metadata["bandwidth_hz"] == pytest.approx(500_000.0)
     assert signal.metadata["bandwidth_definition"] == "phase_code_derived_code_rate"
+    assert signal.metadata["subpulse_width_s"] == pytest.approx(2e-6)
+    assert signal.metadata["pulse_width_s"] == pytest.approx(8e-6)
+    assert signal.metadata["pulse_width_definition"] == "phase_code_total_code_duration"
 
 
 def test_phase_code_waveform_accepts_zero_one_code() -> None:
@@ -82,7 +86,8 @@ def test_phase_code_waveform_accepts_zero_one_code() -> None:
         WaveformConfig(
             waveform_type="phase_code",
             sample_rate_hz=8e6,
-            pulse_width_s=8e-6,
+            pulse_width_s=2e-6,
+            peak_power_w=1.0,
             phase_code=[1, 0, 1, 0],
         ),
     )
@@ -100,12 +105,12 @@ def test_phase_code_rejects_invalid_code_values() -> None:
         WaveformConfig(waveform_type="phase_code", phase_code=[1, 2])
 
 
-def test_phase_code_rejects_non_divisible_sample_count() -> None:
-    """测试 phase_code 总采样点不能被码长整除时报错。"""
+def test_phase_code_rejects_non_integer_subpulse_sample_count() -> None:
+    """测试 phase_code 子脉冲宽度不是整数采样点时报错。"""
     config = WaveformConfig(
         waveform_type="phase_code",
         sample_rate_hz=10e6,
-        pulse_width_s=1e-6,
+        pulse_width_s=0.15e-6,
         phase_code=[1, -1, 1],
     )
 

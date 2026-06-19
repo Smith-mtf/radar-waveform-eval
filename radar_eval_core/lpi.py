@@ -23,7 +23,7 @@ from .engineering import (
 from .engineering import (
     compute_tbp as _compute_engineering_tbp,
 )
-from .schemas import LpiExposureMetrics, OccupiedBandwidthMetrics, SpectrumEstimate
+from .schemas import LpiExposureMetrics, SpectrumEstimate
 
 _PSD_POWER_RELATIVE_ERROR_TOLERANCE = 1e-6
 _FREQUENCY_GRID_RTOL = 1e-9
@@ -57,13 +57,6 @@ def validate_positive(value: float, name: str) -> float:
     """校验参数为有限正数。"""
     if not math.isfinite(value) or value <= 0:
         raise LpiFeatureError(f"{name} 必须是有限正数。")
-    return float(value)
-
-
-def validate_occupied_power_fraction(value: float) -> float:
-    """校验中心占用功率比例满足 0 < value < 1。"""
-    if not math.isfinite(value) or not 0.0 < value < 1.0:
-        raise LpiFeatureError("occupied_power_fraction 必须满足 0 < value < 1。")
     return float(value)
 
 
@@ -154,50 +147,6 @@ def compute_two_sided_periodogram_psd(
     )
 
 
-def compute_occupied_bandwidth(
-    spectrum: SpectrumEstimate,
-    occupied_power_fraction: float = 0.99,
-) -> OccupiedBandwidthMetrics:
-    """基于 PSD 累计功率和频率 bin 边界计算中心占用带宽。"""
-    validated_fraction = validate_occupied_power_fraction(occupied_power_fraction)
-    frequency_hz = np.asarray(spectrum.frequency_hz, dtype=np.float64)
-    psd_w_per_hz = np.asarray(spectrum.psd_w_per_hz, dtype=np.float64)
-    _validate_spectrum_arrays(frequency_hz, psd_w_per_hz)
-    frequency_resolution_hz = _validate_frequency_grid(frequency_hz)
-
-    bin_power_w = psd_w_per_hz * frequency_resolution_hz
-    total_power_w = float(np.sum(bin_power_w))
-    if not math.isfinite(total_power_w) or total_power_w <= 0:
-        raise LpiFeatureError("spectrum 总功率必须是有限正数。")
-
-    lower_tail_power_fraction = (1.0 - validated_fraction) / 2.0
-    upper_tail_power_fraction = 1.0 - lower_tail_power_fraction
-    cumulative_power_fraction = np.cumsum(bin_power_w) / total_power_w
-    lower_index = int(np.searchsorted(cumulative_power_fraction, lower_tail_power_fraction))
-    upper_index = int(np.searchsorted(cumulative_power_fraction, upper_tail_power_fraction))
-    if lower_index >= frequency_hz.size or upper_index >= frequency_hz.size:
-        raise LpiFeatureError("无法在给定 PSD 网格内确定占用带宽边界。")
-    if upper_index < lower_index:
-        raise LpiFeatureError("占用带宽上边界索引小于下边界索引。")
-
-    lower_frequency_hz = float(frequency_hz[lower_index] - frequency_resolution_hz / 2.0)
-    upper_frequency_hz = float(frequency_hz[upper_index] + frequency_resolution_hz / 2.0)
-    occupied_bandwidth_hz = upper_frequency_hz - lower_frequency_hz
-    if not math.isfinite(occupied_bandwidth_hz) or occupied_bandwidth_hz <= 0:
-        raise LpiFeatureError("occupied_bandwidth_hz 必须是有限正数。")
-
-    return OccupiedBandwidthMetrics(
-        occupied_power_fraction=validated_fraction,
-        occupied_bandwidth_hz=occupied_bandwidth_hz,
-        lower_frequency_hz=lower_frequency_hz,
-        upper_frequency_hz=upper_frequency_hz,
-        total_power_w=total_power_w,
-        lower_tail_power_fraction=lower_tail_power_fraction,
-        upper_tail_power_fraction=1.0 - upper_tail_power_fraction,
-        method="central_occupied_bandwidth_from_psd_bin_edges",
-    )
-
-
 def compute_tbp(bandwidth_hz: float, pulse_width_s: float) -> float:
     """计算时宽带宽积 tbp = bandwidth_hz * pulse_width_s。"""
     validate_positive(bandwidth_hz, "bandwidth_hz")
@@ -254,7 +203,6 @@ def compute_lpi_exposure_metrics(
     sample_rate_hz: float,
     bandwidth_hz: float,
     pulse_width_s: float,
-    occupied_power_fraction: float = 0.99,
     prf_hz: float | None = None,
     pri_s: float | None = None,
 ) -> LpiExposureMetrics:
@@ -263,17 +211,10 @@ def compute_lpi_exposure_metrics(
     validated_sample_rate_hz = validate_positive(sample_rate_hz, "sample_rate_hz")
     validated_bandwidth_hz = validate_positive(bandwidth_hz, "bandwidth_hz")
     validated_pulse_width_s = validate_positive(pulse_width_s, "pulse_width_s")
-    validated_occupied_power_fraction = validate_occupied_power_fraction(
-        occupied_power_fraction,
-    )
 
     peak_power_w = compute_peak_power_w(validated_signal)
     average_power_w = compute_average_power_w(validated_signal)
     spectrum = compute_two_sided_periodogram_psd(validated_signal, validated_sample_rate_hz)
-    occupied_bandwidth = compute_occupied_bandwidth(
-        spectrum,
-        validated_occupied_power_fraction,
-    )
 
     duty_cycle: float | None = None
     duty_cycle_definition: str | None = None
@@ -292,20 +233,11 @@ def compute_lpi_exposure_metrics(
             validated_bandwidth_hz,
         ),
         tbp=compute_tbp(validated_bandwidth_hz, validated_pulse_width_s),
-        occupied_power_fraction=validated_occupied_power_fraction,
-        occupied_bandwidth_hz=occupied_bandwidth.occupied_bandwidth_hz,
-        occupied_lower_frequency_hz=occupied_bandwidth.lower_frequency_hz,
-        occupied_upper_frequency_hz=occupied_bandwidth.upper_frequency_hz,
         psd_total_power_w=spectrum.total_power_from_psd_w,
         psd_relative_power_error=spectrum.relative_power_error,
         duty_cycle=duty_cycle,
         duty_cycle_definition=duty_cycle_definition,
     )
-
-
-def estimate_lpi_metrics() -> None:
-    """保留旧占位入口；请直接调用 compute_lpi_exposure_metrics。"""
-    raise NotImplementedError("请使用 compute_lpi_exposure_metrics。")
 
 
 def _validate_frequency_grid(frequency_hz: npt.NDArray[np.float64]) -> float:
@@ -330,23 +262,6 @@ def _validate_frequency_grid(frequency_hz: npt.NDArray[np.float64]) -> float:
     ):
         raise LpiFeatureError("frequency_hz 必须为等间隔网格。")
     return frequency_resolution_hz
-
-
-def _validate_spectrum_arrays(
-    frequency_hz: npt.NDArray[np.float64],
-    psd_w_per_hz: npt.NDArray[np.float64],
-) -> None:
-    """校验 PSD 谱数组维度、长度和数值范围。"""
-    if psd_w_per_hz.ndim != 1:
-        raise LpiFeatureError("psd_w_per_hz 必须是一维数组。")
-    if frequency_hz.size != psd_w_per_hz.size:
-        raise LpiFeatureError("frequency_hz 和 psd_w_per_hz 长度必须一致。")
-    if psd_w_per_hz.size < 2:
-        raise LpiFeatureError("psd_w_per_hz 至少需要 2 个频率点。")
-    if not np.all(np.isfinite(psd_w_per_hz)):
-        raise LpiFeatureError("psd_w_per_hz 必须只包含有限数值。")
-    if np.any(psd_w_per_hz < 0):
-        raise LpiFeatureError("psd_w_per_hz 不能包含负值。")
 
 
 def _duty_cycle_definition(*, prf_hz: float | None, pri_s: float | None) -> str:

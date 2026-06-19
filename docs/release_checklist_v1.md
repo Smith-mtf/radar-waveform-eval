@@ -7,7 +7,7 @@
 - [ ] 运行 CLI 示例
 
 ```powershell
-uv run python scripts/run_eval_cli.py --config configs/lfm_default.json --scoring-config configs/scoring_default.json --output-dir outputs
+uv run python scripts/run_eval_cli.py --config configs/lfm_default.json --scenario-config configs/scenario_default.json --scoring-config configs/scoring_default.json --output-dir outputs
 ```
 
 ## 桌面软件检查
@@ -16,7 +16,7 @@ uv run python scripts/run_eval_cli.py --config configs/lfm_default.json --scorin
 - [ ] 加载默认 LFM 配置
 - [ ] 运行评估
 - [ ] 查看综合评分卡
-- [ ] 查看六维雷达图
+- [ ] 查看五维雷达图
 - [ ] 查看模糊函数图
 - [ ] 查看频谱图
 - [ ] 查看底层指标表
@@ -38,4 +38,3 @@ uv run python scripts/run_eval_cli.py --config configs/lfm_default.json --scorin
 - [ ] 记录评分配置依赖性
 - [ ] 确认示例项目不包含真实敏感装备参数
 - [ ] 确认测试不调用外部 API
-

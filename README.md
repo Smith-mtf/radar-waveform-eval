@@ -1,19 +1,20 @@
 # 雷达波形性能评估软件 V1.0
 
-本项目是一个基于 Python + PySide6 / QtWidgets 的桌面原型软件，用于对雷达波形的探测性能、分辨能力、旁瓣与模糊控制能力、抗干扰性能、反侦察 / 低截获暴露特征和工程可实现性进行结构化评估。
+本项目是一个基于 Python + PySide6 / QtWidgets 的桌面原型软件，用于对雷达波形的探测性能、分辨能力、旁瓣与模糊控制能力、抗干扰性能、反侦察 / 低截获暴露特征进行结构化评估。
 
 V1.0 的核心定位是“本地算法评估 + 桌面演示闭环”。所有指标计算都在 `radar_eval_core` 中完成，`desktop_app` 只负责参数收集、服务调用、结果展示、报告生成和文件导出。
 
 ## 当前版本功能
 
 - 支持 `rect`、`lfm`、`phase_code` 三类复基带波形生成。
-- 按波形类型定义名义带宽：`lfm` 使用显式扫频带宽，`rect` 按 `1 / pulse_width_s` 派生，`phase_code` 按码片率 `code_length / pulse_width_s` 派生；采样率只表示 IQ 离散化采样。
-- 支持工程指标、零多普勒旁瓣指标、二维模糊函数、Doppler 容忍性、探测性能、宽带高斯噪声压制干扰、LPI 暴露特征、分辨能力和配置化评分。
+- 按波形类型定义名义带宽：`lfm` 使用显式扫频带宽，`rect` 按 `1 / pulse_width_s` 派生，`phase_code` 中 `pulse_width_s` 表示子脉冲宽度，名义带宽按码片率 `1 / pulse_width_s` 派生；采样率只表示 IQ 离散化采样。
+- 支持工程辅助量、零多普勒旁瓣指标、二维模糊函数、Doppler 容忍性、探测性能、宽带高斯噪声压制干扰、LPI 暴露特征、分辨能力和配置化评分；默认评分不包含工程可实现性。
 - 支持命令行完整评估流水线。
-- 支持 PySide6 桌面界面：配置、运行评估、查看雷达图、指标表、模糊函数图和频谱图。
+- 支持 PySide6 桌面界面：配置、运行评估、查看雷达图、代表性指标表、模糊函数图和频谱图；未实现或当前不可用指标不在评估看板中占位展示。
 - 支持本地模板报告，不调用外部 LLM。
 - 支持导出 `evaluation_result.json`、`raw_metrics.csv`、`axis_scores.csv`、`chart_data.json`、`report.md` 和 `report.html`。
 - 支持 `.rwep.json` 项目文件保存和打开。
+- 支持将波形默认配置、场景与环境配置、评分配置分开加载。
 
 ## 技术栈
 
@@ -47,7 +48,7 @@ uv run ruff check .
 ## 运行 CLI
 
 ```powershell
-uv run python scripts/run_eval_cli.py --config configs/lfm_default.json --scoring-config configs/scoring_default.json --output-dir outputs
+uv run python scripts/run_eval_cli.py --config configs/lfm_default.json --scenario-config configs/scenario_default.json --scoring-config configs/scoring_default.json --output-dir outputs
 ```
 
 CLI 会输出：
@@ -57,6 +58,10 @@ CLI 会输出：
 - `axis_scores.json`
 - `evaluation_result.json`
 - `chart_data.json`
+
+其中 `--config` 读取波形配置，`--scenario-config` 读取独立的场景与环境配置，
+并覆盖请求中的 `scenario`、`jammer` 和 `evaluation` 三段。默认波形配置文件
+`configs/lfm_default.json` 和 `configs/phase_code_default.json` 只包含 `waveform`。
 
 ## 启动桌面软件
 

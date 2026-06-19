@@ -18,7 +18,11 @@ def derive_nominal_bandwidth_hz(
     phase_code: list[int] | None = None,
     explicit_bandwidth_hz: float | None = None,
 ) -> float:
-    """按波形类型返回用于指标计算的名义带宽。"""
+    """按波形类型返回用于指标计算的名义带宽。
+
+    对 `phase_code`，`pulse_width_s` 表示单个子脉冲/码片宽度，因此名义带宽按
+    码片率 `1 / pulse_width_s` 派生。
+    """
     if pulse_width_s <= 0:
         raise ValueError("pulse_width_s 必须大于 0。")
 
@@ -33,8 +37,32 @@ def derive_nominal_bandwidth_hz(
     if waveform_type == "phase_code":
         code = phase_code
         _validate_binary_phase_code(code)
+        return float(1.0 / pulse_width_s)
+
+    raise ValueError(f"不支持的波形类型: {waveform_type}")
+
+
+def derive_total_pulse_width_s(
+    waveform_type: WaveformType,
+    pulse_width_s: float,
+    phase_code: list[int] | None = None,
+) -> float:
+    """返回波形完整脉冲时宽。
+
+    `rect` 和 `lfm` 直接使用配置的 `pulse_width_s`；`phase_code` 将
+    `pulse_width_s` 解释为子脉冲/码片宽度，并乘以码长得到完整编码脉冲时宽。
+    """
+    if pulse_width_s <= 0:
+        raise ValueError("pulse_width_s 必须大于 0。")
+
+    if waveform_type in {"rect", "lfm"}:
+        return float(pulse_width_s)
+
+    if waveform_type == "phase_code":
+        code = phase_code
+        _validate_binary_phase_code(code)
         assert code is not None
-        return float(len(code) / pulse_width_s)
+        return float(len(code) * pulse_width_s)
 
     raise ValueError(f"不支持的波形类型: {waveform_type}")
 
@@ -70,10 +98,14 @@ class WaveformConfig(BaseModel):
     )
     name: str = Field(default="default_waveform", description="波形名称")
     carrier_frequency_hz: float = Field(default=10e9, gt=0, description="载频")
-    bandwidth_hz: float = Field(default=20e6, gt=0, description="带宽")
-    pulse_width_s: float = Field(default=20e-6, gt=0, description="脉宽")
-    sample_rate_hz: float = Field(default=100e6, gt=0, description="采样率")
-    peak_power_w: float = Field(default=1.0, gt=0, description="峰值功率")
+    bandwidth_hz: float = Field(default=10e6, gt=0, description="带宽")
+    pulse_width_s: float = Field(
+        default=10e-6,
+        gt=0,
+        description="rect/lfm 为脉宽；phase_code 为子脉冲宽度",
+    )
+    sample_rate_hz: float = Field(default=50e6, gt=0, description="采样率")
+    peak_power_w: float = Field(default=1000.0, gt=0, description="峰值功率")
     phase_code: list[int] | None = Field(default=None, description="二相相位编码序列")
 
     @model_validator(mode="after")
@@ -181,20 +213,6 @@ class SpectrumEstimate:
     return_onesided: bool
 
 
-@dataclass(slots=True)
-class OccupiedBandwidthMetrics:
-    """基于 PSD 累计功率的中心占用带宽指标。"""
-
-    occupied_power_fraction: float
-    occupied_bandwidth_hz: float
-    lower_frequency_hz: float
-    upper_frequency_hz: float
-    total_power_w: float
-    lower_tail_power_fraction: float
-    upper_tail_power_fraction: float
-    method: str
-
-
 class ResolutionMetrics(BaseModel):
     """严格定义的距离、多普勒和速度分辨能力指标。"""
 
@@ -269,13 +287,9 @@ class LpiExposureMetrics(BaseModel):
     average_power_w: float = Field(gt=0, description="平均功率")
     papr_db: float = Field(ge=0, description="峰均功率比，单位 dB")
     bandwidth_hz: float = Field(gt=0, description="名义带宽")
-    pulse_width_s: float = Field(gt=0, description="脉宽")
+    pulse_width_s: float = Field(gt=0, description="完整脉冲时宽")
     nominal_avg_psd_w_per_hz: float = Field(ge=0, description="名义平均功率谱密度")
     tbp: float = Field(gt=0, description="时宽带宽积")
-    occupied_power_fraction: float = Field(gt=0, lt=1, description="占用功率比例")
-    occupied_bandwidth_hz: float = Field(gt=0, description="中心占用带宽")
-    occupied_lower_frequency_hz: float = Field(description="占用带宽下边界频率")
-    occupied_upper_frequency_hz: float = Field(description="占用带宽上边界频率")
     psd_total_power_w: float = Field(gt=0, description="PSD 积分得到的总功率")
     psd_relative_power_error: float = Field(ge=0, description="PSD 积分功率相对误差")
     duty_cycle: float | None = Field(default=None, gt=0, le=1, description="占空比")
@@ -309,7 +323,7 @@ class EvaluationSettings(BaseModel):
     target_pd: float | None = Field(default=0.9, gt=0, lt=1, description="目标检测概率")
     noise_variance: float = Field(default=1.0, gt=0, description="每个复采样点噪声功率")
     mainlobe_spec: MainlobeSpec = Field(
-        default_factory=lambda: MainlobeSpec(method="manual_guard_samples", guard_samples=0),
+        default_factory=lambda: MainlobeSpec(method="first_local_minimum"),
         description="零多普勒旁瓣主瓣定义",
     )
     doppler_max_hz: float = Field(default=100_000.0, gt=0, description="对称 Doppler 网格最大频率")
@@ -319,7 +333,6 @@ class EvaluationSettings(BaseModel):
     num_pulses: int | None = Field(default=64, ge=1, description="CPI 内脉冲数")
     prf_hz: float | None = Field(default=1000.0, gt=0, description="脉冲重复频率")
     pri_s: float | None = Field(default=None, gt=0, description="脉冲重复间隔")
-    occupied_power_fraction: float = Field(default=0.99, gt=0, lt=1, description="占用功率比例")
 
     @model_validator(mode="after")
     def validate_doppler_grid_shape(self) -> Self:
@@ -329,6 +342,14 @@ class EvaluationSettings(BaseModel):
         return self
 
 
+class ScenarioEnvironmentConfig(BaseModel):
+    """可独立加载的场景与环境配置。"""
+
+    scenario: ScenarioConfig = Field(default_factory=ScenarioConfig)
+    jammer: JammerConfig = Field(default_factory=JammerConfig)
+    evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
+
+
 class EvaluationRequest(BaseModel):
     """一次评估请求。"""
 
@@ -336,6 +357,19 @@ class EvaluationRequest(BaseModel):
     scenario: ScenarioConfig = Field(default_factory=ScenarioConfig)
     jammer: JammerConfig = Field(default_factory=JammerConfig)
     evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
+
+
+def apply_scenario_environment_config(
+    request: EvaluationRequest,
+    scenario_environment: ScenarioEnvironmentConfig,
+) -> EvaluationRequest:
+    """将独立场景与环境配置合并到现有评估请求，保留原波形配置。"""
+    return EvaluationRequest(
+        waveform=request.waveform,
+        scenario=scenario_environment.scenario,
+        jammer=scenario_environment.jammer,
+        evaluation=scenario_environment.evaluation,
+    )
 
 
 class MetricAvailability(BaseModel):

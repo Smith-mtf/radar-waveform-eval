@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from .schemas import AxisScore, EvaluationRequest, EvaluationResult, MetricValue, RawMetric
+from .schemas import AxisScore, MetricValue, RawMetric
 
 
 class ScoringError(ValueError):
@@ -108,7 +108,7 @@ def compute_axis_scores(
                     name=axis_config.display_name,
                     score=None,
                     available=False,
-                    reason="该维度没有可用评分指标。",
+                    reason=_axis_unavailable_reason(metric_results),
                     metrics=[],
                 ),
             )
@@ -162,12 +162,6 @@ def compute_total_score(
     return float(weighted_sum / total_weight)
 
 
-def evaluate_request(request: EvaluationRequest) -> EvaluationResult:
-    """保留旧入口；请调用 evaluation_pipeline.compute_waveform_evaluation。"""
-    _ = request
-    raise NotImplementedError("请使用 compute_waveform_evaluation。")
-
-
 def _score_metrics_for_axis(
     axis_id: str,
     raw_metric_by_id: dict[str, RawMetric],
@@ -214,6 +208,19 @@ def _score_metrics_for_axis(
             ),
         )
     return results
+
+
+def _axis_unavailable_reason(metric_results: Sequence[MetricScoreResult]) -> str:
+    """汇总不可用指标原因，作为维度不可用说明。"""
+    if not metric_results:
+        return "该维度没有可用评分指标。"
+    reasons: list[str] = []
+    for result in metric_results:
+        if result.reason and result.reason not in reasons:
+            reasons.append(result.reason)
+    if reasons:
+        return "；".join(reasons)
+    return "该维度没有可用评分指标。"
 
 
 def _normalize_higher_better(value: float, config: MetricScoreConfig) -> float:

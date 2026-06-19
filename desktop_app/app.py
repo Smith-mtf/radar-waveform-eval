@@ -15,6 +15,7 @@ from radar_eval_core.schemas import EvaluationRequest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REQUEST_PATH = PROJECT_ROOT / "configs" / "lfm_default.json"
+DEFAULT_SCENARIO_ENVIRONMENT_PATH = PROJECT_ROOT / "configs" / "scenario_default.json"
 DEFAULT_SCORING_PATH = PROJECT_ROOT / "configs" / "scoring_default.json"
 
 
@@ -35,7 +36,10 @@ def create_initial_state() -> tuple[AppState, list[str]]:
     state = AppState(current_request=EvaluationRequest())
     errors: list[str] = []
     try:
-        state.current_request = service.load_request(DEFAULT_REQUEST_PATH)
+        state.current_request = service.load_request_with_scenario_environment(
+            DEFAULT_REQUEST_PATH,
+            DEFAULT_SCENARIO_ENVIRONMENT_PATH,
+        )
     except Exception as exc:
         errors.append(str(exc))
     try:

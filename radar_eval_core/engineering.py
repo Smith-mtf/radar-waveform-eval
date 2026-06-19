@@ -53,12 +53,6 @@ def compute_psd_avg_w_per_hz(average_power_w: float, bandwidth_hz: float) -> flo
     return compute_nominal_avg_psd_w_per_hz(average_power_w, bandwidth_hz)
 
 
-def estimate_engineering_metrics() -> None:
-    """评估工程可实现性指标的预留入口。"""
-    # TODO: 后续汇总采样率、带宽、脉宽、功率和处理复杂度等工程约束。
-    raise NotImplementedError("工程可实现性综合评估将在后续版本实现。")
-
-
 def _validate_one_dimensional_signal(
     iq: npt.NDArray[np.complexfloating],
 ) -> npt.NDArray[np.complexfloating]:

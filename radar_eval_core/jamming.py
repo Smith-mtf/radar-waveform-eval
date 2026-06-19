@@ -208,11 +208,6 @@ def compute_wideband_noise_jamming_metrics(
     )
 
 
-def estimate_jamming_resilience() -> None:
-    """保留旧占位入口；请直接调用 compute_wideband_noise_jamming_metrics。"""
-    raise NotImplementedError("请使用 compute_wideband_noise_jamming_metrics。")
-
-
 def _validate_noise_variance(noise_variance: float) -> None:
     """校验热噪声方差为有限正数。"""
     if not math.isfinite(noise_variance) or noise_variance <= 0:

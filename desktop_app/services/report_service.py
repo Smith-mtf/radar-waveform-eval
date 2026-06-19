@@ -86,7 +86,6 @@ def generate_local_template_report(
         ReportSection("旁瓣与模糊控制分析", _sidelobe_section(metrics)),
         ReportSection("抗干扰性能分析", _jamming_section(metrics)),
         ReportSection("反侦察 / 低截获特征分析", _lpi_section(metrics)),
-        ReportSection("工程可实现性分析", _engineering_section(metrics)),
         ReportSection(
             "模型假设与限制",
             _list_text([*assumptions, *limitations]),
@@ -189,53 +188,28 @@ def generate_llm_report_placeholder(report_input: dict[str, Any]) -> ReportDocum
 
 _DETECTION_METRICS = [
     "detection.pd",
-    "detection.pfa",
     "detection.output_snr_db",
-    "detection.required_output_snr_db",
-    "detection.threshold_normalized",
 ]
 
 _RESOLUTION_METRICS = [
     "resolution.range_resolution_m",
-    "resolution.range_sample_spacing_m",
     "resolution.velocity_resolution_mps",
-    "resolution.doppler_resolution_hz",
-    "resolution.cpi_s",
-    "resolution.wavelength_m",
 ]
 
 _SIDELOBE_METRICS = [
     "sidelobe_ambiguity.zero_doppler_pslr_db",
     "sidelobe_ambiguity.zero_doppler_islr_db",
-    "sidelobe_ambiguity.mainlobe_width_samples",
     "sidelobe_ambiguity.doppler_tolerance_hz",
 ]
 
 _JAMMING_METRICS = [
-    "anti_jamming.clean_pd",
     "anti_jamming.jammed_pd",
     "anti_jamming.pd_retention",
-    "anti_jamming.jammed_output_sinr_db",
-    "anti_jamming.jamming_margin_jsr_db",
 ]
 
 _LPI_METRICS = [
-    "lpi.peak_power_w",
-    "lpi.average_power_w",
     "lpi.nominal_avg_psd_w_per_hz",
-    "lpi.occupied_bandwidth_hz",
-    "lpi.tbp",
-    "lpi.duty_cycle",
-    "lpi.papr_db",
 ]
-
-_ENGINEERING_METRICS = [
-    "engineering.papr_db",
-    "engineering.average_power_w",
-    "engineering.peak_power_w",
-    "engineering.tbp",
-]
-
 
 def _overall_section(result: EvaluationResult, report_input: dict[str, Any]) -> str:
     axis_lines = [
@@ -271,7 +245,8 @@ def _sidelobe_section(metrics: dict[str, RawMetric]) -> str:
         [
             _metric_section(metrics, _SIDELOBE_METRICS),
             "",
-            "当前版本引用零多普勒旁瓣和 zero-delay Doppler cut 指标，未纳入二维 PSLR / ISLR。",
+            "当前版本引用零多普勒 PSLR / ISLR 和 zero-delay Doppler cut 指标，"
+            "未纳入二维 PSLR / ISLR。",
         ],
     )
 
@@ -296,26 +271,14 @@ def _lpi_section(metrics: dict[str, RawMetric]) -> str:
     )
 
 
-def _engineering_section(metrics: dict[str, RawMetric]) -> str:
-    return "\n".join(
-        [
-            _metric_section(metrics, _ENGINEERING_METRICS),
-            "",
-            "处理复杂度指标当前未实现，因此不在本报告中给出猜测值。",
-        ],
-    )
-
-
 def _metric_section(metrics: dict[str, RawMetric], metric_ids: list[str]) -> str:
     lines = []
     for metric_id in metric_ids:
         metric = metrics.get(metric_id)
-        if metric is None:
-            lines.append(f"- {metric_id}: 不可用，当前结果未包含该指标。")
-        elif not metric.available:
-            lines.append(f"- {metric_id}: 不可用，原因: {metric.reason or '未说明'}。")
-        else:
+        if metric is not None and metric.available and metric.value is not None:
             lines.append(f"- {metric_id}: {_format_metric(metric)}")
+    if not lines:
+        return "当前代表性指标暂无可用结果。"
     return "\n".join(lines)
 
 
@@ -332,18 +295,13 @@ def _build_recommendations(
         recommendations.append(
             f"优先关注得分较低的维度“{weakest.name}”，并结合该维度底层指标定位约束来源。",
         )
-    unavailable = [metric for metric in metrics.values() if not metric.available]
-    if unavailable:
-        recommendations.append(
-            "存在不可用指标，建议补齐对应模型参数后再生成完整报告。",
-        )
     if _metric_available(metrics, "anti_jamming.jammed_pd"):
         recommendations.append(
             "抗干扰建议仅基于当前宽带高斯噪声压制干扰模型解释，不应外推到欺骗干扰或窄带干扰。",
         )
     if _metric_available(metrics, "lpi.nominal_avg_psd_w_per_hz"):
         recommendations.append(
-            "低截获相关建议应结合峰值功率、名义平均 PSD、占用带宽和任务约束共同判断。",
+            "低截获相关建议应结合峰值功率、名义平均 PSD 和任务约束共同判断。",
         )
     if not recommendations:
         recommendations.append("当前结果未显示明确弱项，可保留评分配置并复核关键指标。")

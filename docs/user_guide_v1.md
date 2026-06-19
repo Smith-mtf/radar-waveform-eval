@@ -15,7 +15,8 @@ uv run python -m desktop_app.main
 在“运行评估”页面点击：
 
 - “加载默认 LFM”
-- “加载默认相位编码”
+- “加载默认相位编码”：使用 13 位 Barker 码，输入的 `pulse_width_s` 为单个子脉冲宽度
+- “文件 / 加载默认场景与环境”：只替换目标、噪声、检测、相干处理和干扰设置，不改变当前波形
 
 也可以通过“文件 / 打开项目”打开 `examples/` 下的 `.rwep.json` 示例项目。
 
@@ -26,8 +27,8 @@ uv run python -m desktop_app.main
 - 波形类型：`rect`、`lfm`、`phase_code`
 - 名称
 - 载频
-- 带宽：仅 `lfm` 手填；`rect` 按 `1 / pulse_width_s` 派生；`phase_code` 按 `code_length / pulse_width_s` 派生
-- 脉宽
+- 带宽：仅 `lfm` 手填；`rect` 按 `1 / pulse_width_s` 派生；`phase_code` 按子脉冲宽度的码片率 `1 / pulse_width_s` 派生
+- 脉宽：`phase_code` 中该输入项显示为“子脉冲宽度”，完整编码脉冲时宽为码长乘以子脉冲宽度
 - 采样率：用于离散化复基带 IQ，不等同于编码波形带宽
 - 峰值功率
 - 相位码序列：仅 `phase_code` 显示并填写
@@ -36,7 +37,19 @@ uv run python -m desktop_app.main
 
 ## 配置场景参数
 
-进入“场景配置”页面，设置目标、检测、相干处理、干扰和 LPI 参数。缺少严格模型定义的指标不会被猜测，评估结果中会标记为不可用。
+进入“场景配置”页面，设置目标、检测、相干处理和干扰参数。缺少严格模型定义的指标不会被猜测，评估结果中会标记为不可用。
+
+默认场景与环境参数也可以单独维护在：
+
+```text
+configs/scenario_default.json
+```
+
+该文件包含 `scenario`、`jammer` 和 `evaluation` 三段，可通过菜单单独加载，也可在 CLI 中通过
+`--scenario-config` 指定。
+
+默认波形配置文件 `configs/lfm_default.json` 和 `configs/phase_code_default.json`
+只包含 `waveform`，不再包含场景与环境参数。
 
 ## 运行评估
 
@@ -47,13 +60,14 @@ uv run python -m desktop_app.main
 “结果可视化”页面包含：
 
 - 综合评分卡
-- 六维雷达图
+- 五维雷达图
 - 模糊函数图
 - 频谱 PSD 图
-- 底层指标表
+- 代表性指标表：保留重要且具有代表性的可用指标，未实现或当前不可用指标不在看板中占位展示
 - `chart_data` JSON 预览
 
 所有图表只展示 `EvaluationResult.chart_data`，不重新计算指标。
+波形预览图显示归一化实部幅度，用于比较形状；功率类指标仍使用真实 IQ 功率标定计算。
 
 ## 生成报告
 

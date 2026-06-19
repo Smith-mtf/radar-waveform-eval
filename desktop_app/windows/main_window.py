@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QSplitter,
+    QStackedLayout,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -82,7 +83,21 @@ except Exception:  # pragma: no cover - OpenGL may be unavailable in headless en
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REQUEST_PATH = PROJECT_ROOT / "configs" / "lfm_default.json"
 DEFAULT_PHASE_CODE_PATH = PROJECT_ROOT / "configs" / "phase_code_default.json"
+DEFAULT_SCENARIO_ENVIRONMENT_PATH = PROJECT_ROOT / "configs" / "scenario_default.json"
 DEFAULT_SCORING_PATH = PROJECT_ROOT / "configs" / "scoring_default.json"
+
+REPRESENTATIVE_METRIC_IDS = [
+    "detection.pd",
+    "detection.output_snr_db",
+    "resolution.range_resolution_m",
+    "resolution.velocity_resolution_mps",
+    "sidelobe_ambiguity.zero_doppler_pslr_db",
+    "sidelobe_ambiguity.zero_doppler_islr_db",
+    "sidelobe_ambiguity.doppler_tolerance_hz",
+    "anti_jamming.jammed_pd",
+    "anti_jamming.pd_retention",
+    "lpi.nominal_avg_psd_w_per_hz",
+]
 
 
 SHELL_QSS = """
@@ -219,7 +234,6 @@ class LeftParameterPanel(QFrame):
         self.noise_variance.setValue(settings.noise_variance)
         self.pfa.setValue(settings.pfa)
         self.target_pd.setValue(settings.target_pd or 0.9)
-        self.occupied_power_fraction.setValue(settings.occupied_power_fraction)
         self.num_pulses.setValue(settings.num_pulses or 64)
         self.prf_hz.setValue(settings.prf_hz or 1000.0)
         self.jammer_enabled.setChecked(jammer.enabled and jammer.jammer_type == "noise")
@@ -255,7 +269,6 @@ class LeftParameterPanel(QFrame):
                 "noise_variance": self.noise_variance.value(),
                 "pfa": self.pfa.value(),
                 "target_pd": self.target_pd.value(),
-                "occupied_power_fraction": self.occupied_power_fraction.value(),
                 "num_pulses": self.num_pulses.value(),
                 "prf_hz": self.prf_hz.value(),
             },
@@ -277,24 +290,23 @@ class LeftParameterPanel(QFrame):
         self.waveform_type_combo.addItems(["rect", "lfm", "phase_code"])
         self.name_edit = QLineEdit()
         self.carrier_frequency_ghz = _double_spin(0.001, 1000.0, " GHz", 3, 10.0)
-        self.bandwidth_mhz = _double_spin(0.001, 100000.0, " MHz", 3, 20.0)
+        self.bandwidth_mhz = _double_spin(0.001, 100000.0, " MHz", 3, 10.0)
         self.bandwidth_mhz.setObjectName("EditableBandwidthMHz")
         self.derived_bandwidth_label = QLabel("")
         self.derived_bandwidth_label.setObjectName("DerivedBandwidthLabel")
         self.derived_bandwidth_label.setStyleSheet("color: #cbd5e1; padding-left: 4px;")
-        self.pulse_width_us = _double_spin(0.001, 1000000.0, " us", 3, 20.0)
-        self.sample_rate_mhz = _double_spin(0.001, 100000.0, " MHz", 3, 100.0)
-        self.peak_power_w = _double_spin(0.001, 1e9, " W", 3, 1.0)
+        self.pulse_width_us = _double_spin(0.001, 1000000.0, " us", 3, 10.0)
+        self.sample_rate_mhz = _double_spin(0.001, 100000.0, " MHz", 3, 50.0)
+        self.peak_power_w = _double_spin(0.001, 1e9, " W", 3, 1000.0)
         self.phase_code_edit = QLineEdit()
         self.phase_code_edit.setObjectName("PhaseCodeEdit")
-        self.phase_code_edit.setPlaceholderText("1,1,1,-1,-1,1,-1")
+        self.phase_code_edit.setPlaceholderText("1,1,1,1,1,-1,-1,1,1,-1,1,-1,1")
 
         self.target_range_km = _double_spin(0.001, 1e6, " km", 3, 50.0)
         self.target_velocity_mps = _double_spin(-100000.0, 100000.0, " m/s", 3, 100.0)
         self.noise_variance = _double_spin(1e-12, 1e12, "", 9, 1.0)
         self.pfa = _double_spin(1e-12, 0.999999, "", 12, 1e-6)
         self.target_pd = _double_spin(0.001, 0.999999, "", 6, 0.9)
-        self.occupied_power_fraction = _double_spin(0.001, 0.999999, "", 6, 0.99)
         self.num_pulses = QSpinBox()
         self.num_pulses.setRange(1, 1000000)
         self.num_pulses.setValue(64)
@@ -368,6 +380,7 @@ class LeftParameterPanel(QFrame):
 
     def _update_waveform_parameter_visibility(self) -> None:
         waveform_type = self.waveform_type_combo.currentText()
+        self._update_pulse_width_label(waveform_type)
         self._set_waveform_row_visible(self.bandwidth_mhz, waveform_type == "lfm")
         self._set_waveform_row_visible(
             self.derived_bandwidth_label,
@@ -375,6 +388,13 @@ class LeftParameterPanel(QFrame):
         )
         self._set_waveform_row_visible(self.phase_code_edit, waveform_type == "phase_code")
         self._refresh_derived_bandwidth_label()
+
+    def _update_pulse_width_label(self, waveform_type: str) -> None:
+        """按波形类型切换宽度输入项文案。"""
+        label = self._waveform_row_labels.get(self.pulse_width_us)
+        if label is None:
+            return
+        label.setText("子脉冲宽度" if waveform_type == "phase_code" else "脉宽")
 
     def _refresh_derived_bandwidth_label(self) -> None:
         waveform_type = self.waveform_type_combo.currentText()
@@ -413,7 +433,6 @@ class LeftParameterPanel(QFrame):
         form.addRow("噪声方差", self.noise_variance)
         form.addRow("Pfa", self.pfa)
         form.addRow("目标 Pd", self.target_pd)
-        form.addRow("占用功率比例", self.occupied_power_fraction)
         form.addRow("脉冲数", self.num_pulses)
         form.addRow("PRF", self.prf_hz)
         form.addRow("干扰开关", self.jammer_enabled)
@@ -441,7 +460,7 @@ class LeftParameterPanel(QFrame):
 class ChartPanel(QFrame):
     """pyqtgraph 图表面板；依赖缺失时退化为文本占位。"""
 
-    def __init__(self, title: str) -> None:
+    def __init__(self, title: str, *, preload_gl: bool = False) -> None:
         """创建一个可绘制曲线或热力图的面板。"""
         super().__init__()
         self.setObjectName("ChartFrame")
@@ -449,6 +468,7 @@ class ChartPanel(QFrame):
         self._plot_widget: Any | None = None
         self._gl_widget: Any | None = None
         self._fallback_label: QLabel | None = None
+        self._content_stack = QStackedLayout()
         self._caption_label = QLabel("")
         self._caption_label.setStyleSheet("color: #94a3b8; padding: 3px 6px;")
         self._caption_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -456,11 +476,12 @@ class ChartPanel(QFrame):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
+        self._layout.addLayout(self._content_stack, stretch=1)
 
         if pg is None:
             self._fallback_label = QLabel("pyqtgraph 未安装，图表区域暂不可用")
             self._fallback_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._layout.addWidget(self._fallback_label, stretch=1)
+            self._content_stack.addWidget(self._fallback_label)
         else:
             self._plot_widget = pg.PlotWidget(background="#0b1220")
             self._plot_widget.setSizePolicy(
@@ -468,18 +489,33 @@ class ChartPanel(QFrame):
                 QSizePolicy.Policy.Expanding,
             )
             self._plot_widget.showGrid(x=True, y=True, alpha=0.25)
-            self._layout.addWidget(self._plot_widget, stretch=1)
+            self._content_stack.addWidget(self._plot_widget)
+            if preload_gl:
+                self.prepare_gl_canvas()
         self._layout.addWidget(self._caption_label)
+
+    def prepare_gl_canvas(self) -> bool:
+        """提前创建 3D 画布，减少首次评估结果刷新时的 OpenGL 初始化闪烁。"""
+        if pg is None or gl is None:
+            return False
+        try:
+            gl_widget = self._ensure_gl_widget()
+        except Exception:
+            return False
+        if self._plot_widget is not None:
+            self._content_stack.setCurrentWidget(self._plot_widget)
+        else:
+            self._content_stack.setCurrentWidget(gl_widget)
+        return True
 
     def show_message(self, message: str) -> None:
         """显示不可用提示。"""
-        if self._gl_widget is not None:
-            self._gl_widget.hide()
         if self._plot_widget is not None:
-            self._plot_widget.show()
+            self._content_stack.setCurrentWidget(self._plot_widget)
             self._plot_widget.clear()
             self._plot_widget.setTitle(message, color="#94a3b8")
         if self._fallback_label is not None:
+            self._content_stack.setCurrentWidget(self._fallback_label)
             self._fallback_label.setText(message)
         self._caption_label.hide()
 
@@ -497,9 +533,7 @@ class ChartPanel(QFrame):
         if self._plot_widget is None:
             self.show_message(f"{self._title} 数据已准备，当前环境未安装 pyqtgraph")
             return
-        if self._gl_widget is not None:
-            self._gl_widget.hide()
-        self._plot_widget.show()
+        self._content_stack.setCurrentWidget(self._plot_widget)
         self._caption_label.hide()
         self._plot_widget.clear()
         self._plot_widget.setTitle("")
@@ -554,9 +588,7 @@ class ChartPanel(QFrame):
             self.show_message("当前 OpenGL 环境无法创建 3D 模糊函数图")
             return
 
-        if self._plot_widget is not None:
-            self._plot_widget.hide()
-        gl_widget.show()
+        self._content_stack.setCurrentWidget(gl_widget)
         self._clear_gl_items(gl_widget)
 
         y_axis, y_label = _scaled_doppler_axis(y_axis_hz)
@@ -604,7 +636,7 @@ class ChartPanel(QFrame):
                 QSizePolicy.Policy.Expanding,
                 QSizePolicy.Policy.Expanding,
             )
-            self._layout.insertWidget(0, self._gl_widget, stretch=1)
+            self._content_stack.addWidget(self._gl_widget)
         return self._gl_widget
 
     @staticmethod
@@ -637,7 +669,7 @@ class MetricCard(QFrame):
 
 
 class RadarChartWidget(QWidget):
-    """六维评分雷达图控件，只展示 EvaluationResult 中已有轴得分。"""
+    """评分雷达图控件，只展示 EvaluationResult 中已有轴得分。"""
 
     axis_order = [
         "detection",
@@ -645,7 +677,6 @@ class RadarChartWidget(QWidget):
         "sidelobe_ambiguity",
         "anti_jamming",
         "lpi",
-        "engineering",
     ]
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -659,9 +690,8 @@ class RadarChartWidget(QWidget):
             "旁瓣与模糊控制",
             "抗干扰性能",
             "低截获暴露特征",
-            "工程可实现性",
         ]
-        self.values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self.values = [0.0 for _ in self.dimensions]
         self.grid_color = QColor(148, 163, 184, 120)
         self.axis_color = QColor(148, 163, 184, 150)
         self.data_line_color = QColor(56, 189, 248)
@@ -670,8 +700,8 @@ class RadarChartWidget(QWidget):
         self.setToolTip("等待评估结果")
 
     def update_data(self, new_values: list[float]) -> None:
-        """使用 6 个百分制轴得分刷新雷达图。"""
-        if len(new_values) != 6:
+        """使用百分制轴得分刷新雷达图。"""
+        if len(new_values) != len(self.dimensions):
             return
         self.values = [float(max(0.0, min(value, 100.0))) for value in new_values]
         self.update()
@@ -680,7 +710,7 @@ class RadarChartWidget(QWidget):
         """从 EvaluationResult.axis_scores 刷新雷达图，不计算新指标。"""
         axis_by_id = {getattr(axis, "axis_id", ""): axis for axis in axis_scores}
         values: list[float] = []
-        tooltip_lines = ["六维评分："]
+        tooltip_lines = ["评分维度："]
         for axis_id, display_name in zip(self.axis_order, self.dimensions, strict=True):
             axis = axis_by_id.get(axis_id)
             score = getattr(axis, "score", None)
@@ -764,7 +794,7 @@ class RightWorkspace(QWidget):
         self.breadcrumb.setObjectName("Breadcrumb")
         self.tabs = QTabWidget()
         self.preview_chart = ChartPanel("波形时域/频域预览区")
-        self.ambiguity_chart = ChartPanel("模糊函数图渲染区")
+        self.ambiguity_chart = ChartPanel("模糊函数图渲染区", preload_gl=True)
         self.spectrum_chart = ChartPanel("频谱图渲染区")
         self.score_value = QLabel("--")
         self.score_value.setObjectName("ScoreValue")
@@ -773,7 +803,7 @@ class RightWorkspace(QWidget):
             "pd": MetricCard("检测概率 Pd"),
             "range_resolution": MetricCard("距离分辨率"),
             "jammed_pd": MetricCard("干扰下 Pd"),
-            "occupied_bandwidth": MetricCard("占用带宽"),
+            "nominal_psd": MetricCard("名义平均 PSD"),
         }
         self.metric_table = QTableWidget(0, 4)
         self.metric_table.setHorizontalHeaderLabels(["指标名称", "计算结果", "单位", "状态/备注"])
@@ -807,26 +837,34 @@ class RightWorkspace(QWidget):
 
     def update_from_result(self, result: EvaluationResult) -> None:
         """使用 EvaluationResult 刷新看板，不重新计算指标。"""
-        self.update_from_request(result.request)
-        self.score_value.setText(f"{result.overall_score:.1f}")
-        self.radar_chart.update_from_axis_scores(result.axis_scores)
-        metrics = {metric.metric_id: metric for metric in result.raw_metrics}
-        self.metric_cards["pd"].set_value(_metric_value_text(metrics.get("detection.pd")))
-        self.metric_cards["range_resolution"].set_value(
-            _metric_value_text(metrics.get("resolution.range_resolution_m")),
-        )
-        self.metric_cards["jammed_pd"].set_value(_metric_value_text(metrics.get("anti_jamming.jammed_pd")))
-        self.metric_cards["occupied_bandwidth"].set_value(
-            _metric_value_text(metrics.get("lpi.occupied_bandwidth_hz")),
-        )
-        self._fill_metric_table(result.raw_metrics[:24])
-        self._update_charts(result.chart_data)
-        self.tabs.setCurrentIndex(1)
+        updates_were_enabled = self.updatesEnabled()
+        self.setUpdatesEnabled(False)
+        try:
+            self.update_from_request(result.request)
+            self.score_value.setText(f"{result.overall_score:.1f}")
+            self.radar_chart.update_from_axis_scores(result.axis_scores)
+            metrics = {metric.metric_id: metric for metric in result.raw_metrics}
+            self.metric_cards["pd"].set_value(_metric_value_text(metrics.get("detection.pd")))
+            self.metric_cards["range_resolution"].set_value(
+                _metric_value_text(metrics.get("resolution.range_resolution_m")),
+            )
+            self.metric_cards["jammed_pd"].set_value(
+                _metric_value_text(metrics.get("anti_jamming.jammed_pd")),
+            )
+            self.metric_cards["nominal_psd"].set_value(
+                _metric_value_text(metrics.get("lpi.nominal_avg_psd_w_per_hz")),
+            )
+            self._fill_metric_table(_representative_metrics(result.raw_metrics))
+            self._update_charts(result.chart_data)
+            self.tabs.setCurrentIndex(1)
+        finally:
+            self.setUpdatesEnabled(updates_were_enabled)
+            self.update()
 
     def show_demo_dashboard(self) -> None:
         """显示未评估时的演示表格和占位图。"""
         self.score_value.setText("--")
-        self.radar_chart.update_data([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.radar_chart.update_data([0.0 for _ in self.radar_chart.dimensions])
         self.radar_chart.setToolTip("等待评估结果")
         for card in self.metric_cards.values():
             card.set_value("-")
@@ -893,7 +931,7 @@ class RightWorkspace(QWidget):
         summary_grid.addWidget(self.metric_cards["pd"], 0, 0)
         summary_grid.addWidget(self.metric_cards["range_resolution"], 0, 1)
         summary_grid.addWidget(self.metric_cards["jammed_pd"], 1, 0)
-        summary_grid.addWidget(self.metric_cards["occupied_bandwidth"], 1, 1)
+        summary_grid.addWidget(self.metric_cards["nominal_psd"], 1, 1)
         summary_grid.setRowStretch(0, 1)
         summary_grid.setRowStretch(1, 1)
         summary_grid.setColumnStretch(0, 1)
@@ -912,6 +950,18 @@ class RightWorkspace(QWidget):
         return tab
 
     def _fill_metric_table(self, metrics: list[RawMetric]) -> None:
+        if not metrics:
+            metrics = [
+                RawMetric(
+                    metric_id="ui.no_available_representative_metric",
+                    axis_id="ui",
+                    value=None,
+                    unit="",
+                    available=False,
+                    reason="当前没有可显示的代表性可用指标。",
+                    description="代表性指标",
+                ),
+            ]
         self.metric_table.setRowCount(len(metrics))
         for row, metric in enumerate(metrics):
             value = "-" if metric.value is None else f"{metric.value:.8g}"
@@ -934,7 +984,7 @@ class RightWorkspace(QWidget):
                 waveform.get("time_s", []),
                 y_values,
                 x_label="Time s",
-                y_label="Amplitude (Real Part)",
+                y_label="Normalized Real Amplitude",
                 x_range=x_range,
                 y_range=(-1.5, 1.5),
             )
@@ -1041,6 +1091,9 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("文件")
         file_menu.addAction(_action(self, "加载默认 LFM 配置", self._load_default_lfm))
         file_menu.addAction(_action(self, "加载默认相位编码配置", self._load_default_phase_code))
+        file_menu.addAction(
+            _action(self, "加载默认场景与环境", self._load_default_scenario_environment),
+        )
         file_menu.addSeparator()
         file_menu.addAction(_action(self, "打开项目", self._open_project))
         file_menu.addAction(_action(self, "保存项目", self._save_project))
@@ -1072,9 +1125,37 @@ class MainWindow(QMainWindow):
     def _load_default_phase_code(self) -> None:
         self._load_request_file(DEFAULT_PHASE_CODE_PATH, "已加载默认相位编码配置")
 
+    def _load_default_scenario_environment(self) -> None:
+        try:
+            scenario_environment = self._evaluation_service.load_scenario_environment_config(
+                DEFAULT_SCENARIO_ENVIRONMENT_PATH,
+            )
+            base_request = self._state.current_request or EvaluationRequest()
+            self._state.current_request = (
+                self._evaluation_service.apply_scenario_environment_config(
+                    base_request,
+                    scenario_environment,
+                )
+            )
+            if self._state.current_scoring_config is None:
+                self._state.current_scoring_config = self._load_default_scoring()
+        except EvaluationServiceError as exc:
+            QMessageBox.critical(self, "场景与环境加载失败", str(exc))
+            return
+        self._state.current_result = None
+        self._state.dirty = True
+        self.workspace.show_demo_dashboard()
+        self.refresh_all_pages()
+        self._set_status("已加载默认场景与环境")
+
     def _load_request_file(self, path: Path, status_text: str) -> None:
         try:
-            self._state.current_request = self._evaluation_service.load_request(path)
+            self._state.current_request = (
+                self._evaluation_service.load_request_with_scenario_environment(
+                    path,
+                    DEFAULT_SCENARIO_ENVIRONMENT_PATH,
+                )
+            )
             self._state.current_scoring_config = self._evaluation_service.load_scoring_config(
                 DEFAULT_SCORING_PATH,
             )
@@ -1336,6 +1417,18 @@ def _metric_value_text(metric: RawMetric | None) -> str:
     if unit:
         return f"{_compact_number(value)} {unit}"
     return _compact_number(value)
+
+
+def _representative_metrics(raw_metrics: list[RawMetric]) -> list[RawMetric]:
+    """按界面代表性指标清单返回可用指标。"""
+    metrics_by_id = {metric.metric_id: metric for metric in raw_metrics}
+    return [
+        metric
+        for metric_id in REPRESENTATIVE_METRIC_IDS
+        if (metric := metrics_by_id.get(metric_id)) is not None
+        and metric.available
+        and metric.value is not None
+    ]
 
 
 def _frequency_text_from_hz(value_hz: float) -> str:

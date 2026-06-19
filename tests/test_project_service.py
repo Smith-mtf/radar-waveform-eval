@@ -17,7 +17,10 @@ def test_save_and_open_project_json(tmp_path: Path) -> None:
     """测试保存和打开 .rwep.json 项目文件。"""
     evaluation_service = EvaluationService()
     project_service = ProjectService()
-    request = evaluation_service.load_request(PROJECT_ROOT / "configs" / "lfm_default.json")
+    request = evaluation_service.load_request_with_scenario_environment(
+        PROJECT_ROOT / "configs" / "lfm_default.json",
+        PROJECT_ROOT / "configs" / "scenario_default.json",
+    )
     scoring_config = evaluation_service.load_scoring_config(
         PROJECT_ROOT / "configs" / "scoring_default.json",
     )

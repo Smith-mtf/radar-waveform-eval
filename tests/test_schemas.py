@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from radar_eval_core.schemas import EvaluationRequest, WaveformConfig, derive_nominal_bandwidth_hz
+from radar_eval_core.schemas import (
+    EvaluationRequest,
+    WaveformConfig,
+    derive_nominal_bandwidth_hz,
+    derive_total_pulse_width_s,
+)
 
 
 def test_create_minimal_evaluation_request() -> None:
@@ -12,6 +17,7 @@ def test_create_minimal_evaluation_request() -> None:
     request = EvaluationRequest()
 
     assert request.waveform.name == "default_waveform"
+    assert request.waveform.peak_power_w == pytest.approx(1000.0)
     assert request.scenario.name == "default_scenario"
     assert request.jammer.enabled is False
 
@@ -58,7 +64,7 @@ def test_rect_waveform_derives_nominal_bandwidth_from_pulse_width() -> None:
 
 
 def test_phase_code_waveform_derives_nominal_bandwidth_from_code_rate() -> None:
-    """测试 phase_code 波形按码片率派生名义带宽。"""
+    """测试 phase_code 波形按子脉冲宽度派生码片率带宽。"""
     config = WaveformConfig(
         waveform_type="phase_code",
         bandwidth_hz=20e6,
@@ -66,12 +72,17 @@ def test_phase_code_waveform_derives_nominal_bandwidth_from_code_rate() -> None:
         phase_code=[1, 1, 1, -1, -1, 1, -1, 1, -1, 1],
     )
 
-    assert config.bandwidth_hz == pytest.approx(200_000.0)
+    assert config.bandwidth_hz == pytest.approx(20_000.0)
     assert derive_nominal_bandwidth_hz(
         "phase_code",
         50e-6,
         phase_code=[1, -1],
-    ) == pytest.approx(40_000.0)
+    ) == pytest.approx(20_000.0)
+    assert derive_total_pulse_width_s(
+        "phase_code",
+        50e-6,
+        phase_code=[1, -1],
+    ) == pytest.approx(100e-6)
 
 
 def test_lfm_waveform_preserves_explicit_bandwidth() -> None:

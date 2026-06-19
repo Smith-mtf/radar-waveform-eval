@@ -15,6 +15,7 @@ def test_lfm_example_project_can_be_opened() -> None:
 
     assert state.current_request is not None
     assert state.current_request.waveform.name == "example_lfm"
+    assert state.current_request.waveform.peak_power_w == 1000.0
     assert state.current_scoring_config is not None
 
 
@@ -26,5 +27,5 @@ def test_phase_code_example_project_can_be_opened() -> None:
 
     assert state.current_request is not None
     assert state.current_request.waveform.name == "example_phase_code"
+    assert state.current_request.waveform.peak_power_w == 1000.0
     assert state.current_scoring_config is not None
-

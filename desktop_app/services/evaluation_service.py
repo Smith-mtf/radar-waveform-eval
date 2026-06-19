@@ -10,7 +10,12 @@ from radar_eval_core.evaluation_pipeline import (
     EvaluationPipelineError,
     compute_waveform_evaluation,
 )
-from radar_eval_core.schemas import EvaluationRequest, EvaluationResult
+from radar_eval_core.schemas import (
+    EvaluationRequest,
+    EvaluationResult,
+    ScenarioEnvironmentConfig,
+    apply_scenario_environment_config,
+)
 from radar_eval_core.scoring import ScoringConfig
 
 
@@ -28,12 +33,40 @@ class EvaluationService:
         except Exception as exc:
             raise EvaluationServiceError(f"读取评估请求失败: {exc}") from exc
 
+    def load_request_with_scenario_environment(
+        self,
+        request_path: Path,
+        scenario_environment_path: Path,
+    ) -> EvaluationRequest:
+        """读取波形/请求配置，并应用独立场景与环境配置。"""
+        request = self.load_request(request_path)
+        scenario_environment = self.load_scenario_environment_config(scenario_environment_path)
+        return self.apply_scenario_environment_config(request, scenario_environment)
+
     def load_scoring_config(self, path: Path) -> ScoringConfig:
         """从 JSON 文件读取 ScoringConfig。"""
         try:
             return ScoringConfig.model_validate(_read_json(path))
         except Exception as exc:
             raise EvaluationServiceError(f"读取评分配置失败: {exc}") from exc
+
+    def load_scenario_environment_config(self, path: Path) -> ScenarioEnvironmentConfig:
+        """从 JSON 文件读取独立场景与环境配置。"""
+        try:
+            return ScenarioEnvironmentConfig.model_validate(_read_json(path))
+        except Exception as exc:
+            raise EvaluationServiceError(f"读取场景与环境配置失败: {exc}") from exc
+
+    def apply_scenario_environment_config(
+        self,
+        request: EvaluationRequest,
+        scenario_environment: ScenarioEnvironmentConfig,
+    ) -> EvaluationRequest:
+        """把独立场景与环境配置合并到现有请求，保留波形配置。"""
+        try:
+            return apply_scenario_environment_config(request, scenario_environment)
+        except Exception as exc:
+            raise EvaluationServiceError(f"应用场景与环境配置失败: {exc}") from exc
 
     def evaluate(
         self,

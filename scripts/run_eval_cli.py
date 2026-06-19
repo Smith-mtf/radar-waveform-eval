@@ -16,7 +16,11 @@ if str(PROJECT_ROOT) not in sys.path:
 def main(argv: list[str] | None = None) -> int:
     """读取配置、运行完整算法评估并写出 JSON 文件。"""
     from radar_eval_core.evaluation_pipeline import compute_waveform_evaluation
-    from radar_eval_core.schemas import EvaluationRequest
+    from radar_eval_core.schemas import (
+        EvaluationRequest,
+        ScenarioEnvironmentConfig,
+        apply_scenario_environment_config,
+    )
     from radar_eval_core.scoring import ScoringConfig
 
     parser = argparse.ArgumentParser(description="运行雷达波形算法核心评估。")
@@ -26,10 +30,19 @@ def main(argv: list[str] | None = None) -> int:
         default="configs/scoring_default.json",
         help="评分配置 JSON",
     )
+    parser.add_argument(
+        "--scenario-config",
+        default="configs/scenario_default.json",
+        help="场景与环境配置 JSON；会覆盖 --config 中的 scenario/jammer/evaluation",
+    )
     parser.add_argument("--output-dir", default="outputs", help="评估输出目录")
     args = parser.parse_args(argv)
 
     request = EvaluationRequest.model_validate(_read_json(Path(args.config)))
+    scenario_environment = ScenarioEnvironmentConfig.model_validate(
+        _read_json(Path(args.scenario_config)),
+    )
+    request = apply_scenario_environment_config(request, scenario_environment)
     scoring_config = ScoringConfig.model_validate(_read_json(Path(args.scoring_config)))
     result = compute_waveform_evaluation(request, scoring_config)
 
@@ -73,4 +86,3 @@ def _write_json(path: Path, data: Any) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

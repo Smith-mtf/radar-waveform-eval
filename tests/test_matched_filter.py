@@ -51,13 +51,13 @@ def test_barker_code_zero_doppler_pslr() -> None:
 
 
 def test_barker_code_zero_doppler_islr() -> None:
-    """测试 Barker 7 码零多普勒 ISLR 为有限负值。"""
+    """测试 Barker 7 码零多普勒 ISLR 公式。"""
     tx = np.array([1, 1, 1, -1, -1, 1, -1], dtype=np.complex128)
     spec = MainlobeSpec(method="manual_guard_samples", guard_samples=0)
     islr_db = compute_zero_doppler_islr_db(autocorrelation_matched_filter(tx), spec)
 
     assert math.isfinite(islr_db)
-    assert islr_db < 0
+    assert islr_db == pytest.approx(10.0 * math.log10(6.0 / 49.0))
 
 
 def test_mainlobe_manual_guard_requires_guard() -> None:

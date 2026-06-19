@@ -10,7 +10,6 @@ from radar_eval_core.lpi import (
     compute_average_power_w,
     compute_duty_cycle,
     compute_lpi_exposure_metrics,
-    compute_occupied_bandwidth,
     compute_papr_db,
     compute_peak_power_w,
     compute_two_sided_periodogram_psd,
@@ -43,31 +42,6 @@ def test_periodogram_frequency_grid_properties() -> None:
     assert len(spectrum.frequency_hz) == len(spectrum.psd_w_per_hz)
     assert spectrum.frequency_resolution_hz > 0
     assert np.all(np.diff(spectrum.frequency_hz) > 0)
-
-
-def test_occupied_bandwidth_valid() -> None:
-    """测试中心占用带宽返回正带宽和有序频率边界。"""
-    signal = np.ones(128, dtype=np.complex128)
-    sample_rate_hz = 1_000.0
-    spectrum = compute_two_sided_periodogram_psd(signal, sample_rate_hz=sample_rate_hz)
-    metrics = compute_occupied_bandwidth(spectrum, occupied_power_fraction=0.99)
-
-    assert metrics.occupied_bandwidth_hz > 0
-    assert metrics.lower_frequency_hz < metrics.upper_frequency_hz
-    assert metrics.occupied_bandwidth_hz <= sample_rate_hz + 1e-12
-    assert metrics.lower_tail_power_fraction == pytest.approx(0.005)
-    assert metrics.upper_tail_power_fraction == pytest.approx(0.005)
-
-
-def test_occupied_bandwidth_rejects_invalid_fraction() -> None:
-    """测试中心占用功率比例非法时会报错。"""
-    signal = np.ones(16, dtype=np.complex128)
-    spectrum = compute_two_sided_periodogram_psd(signal, sample_rate_hz=1_000.0)
-
-    with pytest.raises(LpiFeatureError):
-        compute_occupied_bandwidth(spectrum, occupied_power_fraction=0.0)
-    with pytest.raises(LpiFeatureError):
-        compute_occupied_bandwidth(spectrum, occupied_power_fraction=1.0)
 
 
 def test_duty_cycle_from_prf() -> None:
@@ -108,7 +82,6 @@ def test_lpi_exposure_metrics_fields() -> None:
     assert metrics.peak_power_w >= metrics.average_power_w
     assert metrics.papr_db >= 0
     assert metrics.tbp > 0
-    assert metrics.occupied_bandwidth_hz > 0
     assert metrics.nominal_avg_psd_w_per_hz > 0
     assert metrics.duty_cycle == pytest.approx(0.01)
     assert metrics.duty_cycle_definition == "pulse_width_s * prf_hz"

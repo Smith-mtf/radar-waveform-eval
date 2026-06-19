@@ -5,10 +5,10 @@
       "waveform_type": "phase_code",
       "carrier_frequency_hz": 10000000000.0,
       "bandwidth_hz": 1000000.0,
-      "pulse_width_s": 0.00001,
+      "pulse_width_s": 0.000001,
       "sample_rate_hz": 50000000.0,
-      "peak_power_w": 1.0,
-      "phase_code": [1, 1, 1, -1, -1, 1, -1, 1, -1, 1]
+      "peak_power_w": 1000.0,
+      "phase_code": [1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1]
     },
     "scenario": {
       "name": "example_phase_code_scenario",
@@ -26,8 +26,8 @@
       "target_pd": 0.9,
       "noise_variance": 1.0,
       "mainlobe_spec": {
-        "method": "manual_guard_samples",
-        "guard_samples": 0,
+        "method": "first_local_minimum",
+        "guard_samples": null,
         "null_tolerance": 0.000001
       },
       "doppler_max_hz": 100000.0,
@@ -35,8 +35,7 @@
       "doppler_loss_db": 3.0,
       "num_pulses": 64,
       "prf_hz": 1000.0,
-      "pri_s": null,
-      "occupied_power_fraction": 0.99
+      "pri_s": null
     }
   },
   "scoring_config": {
@@ -46,16 +45,15 @@
       {"axis_id": "resolution", "display_name": "分辨能力", "weight": 1.0, "enabled": true},
       {"axis_id": "sidelobe_ambiguity", "display_name": "旁瓣与模糊控制", "weight": 1.0, "enabled": true},
       {"axis_id": "anti_jamming", "display_name": "抗干扰性能", "weight": 1.0, "enabled": true},
-      {"axis_id": "lpi", "display_name": "低截获暴露特征", "weight": 1.0, "enabled": true},
-      {"axis_id": "engineering", "display_name": "工程可实现性", "weight": 1.0, "enabled": true}
+      {"axis_id": "lpi", "display_name": "低截获暴露特征", "weight": 1.0, "enabled": true}
     ],
     "metric_score_configs": [
       {"metric_id": "detection.pd", "axis_id": "detection", "direction": "higher_better", "min_value": 0.5, "max_value": 0.99, "weight": 1.0, "enabled": true},
       {"metric_id": "resolution.range_resolution_m", "axis_id": "resolution", "direction": "lower_better", "min_value": 1.0, "max_value": 100.0, "weight": 1.0, "enabled": true},
       {"metric_id": "sidelobe_ambiguity.zero_doppler_pslr_db", "axis_id": "sidelobe_ambiguity", "direction": "lower_better", "min_value": -60.0, "max_value": 0.0, "weight": 1.0, "enabled": true},
+      {"metric_id": "sidelobe_ambiguity.zero_doppler_islr_db", "axis_id": "sidelobe_ambiguity", "direction": "lower_better", "min_value": -40.0, "max_value": 0.0, "weight": 1.0, "enabled": true},
       {"metric_id": "anti_jamming.pd_retention", "axis_id": "anti_jamming", "direction": "higher_better", "min_value": 0.0, "max_value": 1.0, "weight": 1.0, "enabled": true},
-      {"metric_id": "lpi.nominal_avg_psd_w_per_hz", "axis_id": "lpi", "direction": "lower_better", "min_value": 0.000000001, "max_value": 0.00001, "weight": 1.0, "enabled": true},
-      {"metric_id": "engineering.papr_db", "axis_id": "engineering", "direction": "lower_better", "min_value": 0.0, "max_value": 12.0, "weight": 1.0, "enabled": true}
+      {"metric_id": "lpi.nominal_avg_psd_w_per_hz", "axis_id": "lpi", "direction": "lower_better", "min_value": 0.000000001, "max_value": 0.00001, "weight": 1.0, "enabled": true}
     ]
   },
   "result": null

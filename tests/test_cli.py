@@ -18,6 +18,8 @@ def test_run_eval_cli_writes_expected_outputs(tmp_path: Path, capsys) -> None:
             str(PROJECT_ROOT / "configs" / "lfm_default.json"),
             "--scoring-config",
             str(PROJECT_ROOT / "configs" / "scoring_default.json"),
+            "--scenario-config",
+            str(PROJECT_ROOT / "configs" / "scenario_default.json"),
             "--output-dir",
             str(tmp_path),
         ],
@@ -40,3 +42,6 @@ def test_run_eval_cli_writes_expected_outputs(tmp_path: Path, capsys) -> None:
     assert "总分:" in captured.out
     assert f"输出目录: {tmp_path}" in captured.out
 
+    request = json.loads((tmp_path / "request.json").read_text(encoding="utf-8"))
+    assert request["scenario"]["name"] == "default_scenario"
+    assert request["jammer"]["enabled"] is True

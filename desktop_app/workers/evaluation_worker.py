@@ -43,8 +43,3 @@ class EvaluationWorker(QObject):
             self.failed.emit(f"评估任务异常: {exc}")
         else:
             self.finished.emit(result)
-
-
-def run_evaluation_worker() -> None:
-    """保留旧占位入口；请实例化 EvaluationWorker 并放入 QThread。"""
-    raise NotImplementedError("请使用 EvaluationWorker。")

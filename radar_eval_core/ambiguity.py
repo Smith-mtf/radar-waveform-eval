@@ -196,11 +196,6 @@ def compute_doppler_tolerance(
     )
 
 
-def calculate_ambiguity_function() -> None:
-    """保留旧占位入口；请直接调用 compute_ambiguity_function。"""
-    raise NotImplementedError("请使用 compute_ambiguity_function。")
-
-
 def _validate_delay_samples(
     delay_samples: npt.ArrayLike | None,
     num_samples: int,

@@ -82,18 +82,24 @@ def test_waveform_parameter_visibility_follows_waveform_type() -> None:
 
 
 def test_derived_bandwidth_label_updates_for_phase_code() -> None:
-    """测试 phase_code 派生带宽随码长和脉宽刷新。"""
+    """测试 phase_code 派生带宽按子脉冲宽度刷新。"""
     app = QApplication.instance() or QApplication([])
     _ = app
     panel = LeftParameterPanel()
 
     panel.waveform_type_combo.setCurrentText("phase_code")
+    pulse_width_label = panel._waveform_row_labels[panel.pulse_width_us]
+    assert pulse_width_label.text() == "子脉冲宽度"
+
     panel.pulse_width_us.setValue(50.0)
     panel.phase_code_edit.setText("1,1,1,-1,-1,1,-1,1,-1,1")
-    assert panel.derived_bandwidth_label.text() == "200 kHz"
+    assert panel.derived_bandwidth_label.text() == "20 kHz"
 
     panel.phase_code_edit.setText("1,-1")
-    assert panel.derived_bandwidth_label.text() == "40 kHz"
+    assert panel.derived_bandwidth_label.text() == "20 kHz"
+
+    panel.waveform_type_combo.setCurrentText("lfm")
+    assert pulse_width_label.text() == "脉宽"
 
 
 def test_ambiguity_surface_db_rendering_smoke() -> None:
@@ -104,7 +110,10 @@ def test_ambiguity_surface_db_rendering_smoke() -> None:
 
     image_db = _ambiguity_db_image(matrix)
     colors = _ambiguity_surface_colors(image_db.T)
-    chart = ChartPanel("test")
+    chart = ChartPanel("test", preload_gl=True)
+    outer_layout_count = chart.layout().count()
+    stack_count = chart._content_stack.count()
+    gl_was_preloaded = chart._gl_widget is not None
     chart.plot_ambiguity_surface(
         [-1.0, 1.0],
         [-100.0, 100.0],
@@ -117,4 +126,7 @@ def test_ambiguity_surface_db_rendering_smoke() -> None:
     assert colors.shape == (matrix.size, 4)
     normalized_axis = _normalized_surface_axis(np.array([-2.0, 0.0, 2.0]))
     assert np.allclose(normalized_axis, np.array([-1.0, 0.0, 1.0]))
+    assert chart.layout().count() == outer_layout_count
+    if gl_was_preloaded:
+        assert chart._content_stack.count() == stack_count
     assert not hasattr(chart, "plot_heatmap")

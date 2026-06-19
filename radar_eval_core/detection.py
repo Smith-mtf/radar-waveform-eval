@@ -196,11 +196,6 @@ def compute_detection_metrics(
     )
 
 
-def estimate_detection_metrics() -> None:
-    """保留旧占位入口；请直接调用 compute_detection_metrics。"""
-    raise NotImplementedError("请使用 compute_detection_metrics。")
-
-
 def _validate_noise_variance(noise_variance: float) -> None:
     """校验复采样点噪声功率为有限正数。"""
     if not math.isfinite(noise_variance) or noise_variance <= 0:

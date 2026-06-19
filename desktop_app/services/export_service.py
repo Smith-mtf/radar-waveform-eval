@@ -90,12 +90,6 @@ def export_report_html(html: str, path: Path) -> None:
     """导出 HTML 报告。"""
     _write_text(path, html)
 
-
-def export_results() -> None:
-    """保留旧占位入口；请调用具体导出函数。"""
-    raise NotImplementedError("请使用具体 export_* 函数。")
-
-
 def _write_text(path: Path, content: str) -> None:
     """写入 UTF-8 文本文件，并包装路径错误。"""
     try:
@@ -115,4 +109,3 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) ->
             writer.writerows(rows)
     except Exception as exc:
         raise ExportServiceError(f"导出 CSV 失败: {path}: {exc}") from exc
-

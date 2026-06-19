@@ -6,6 +6,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
+from desktop_app.services.evaluation_service import EvaluationService
 from desktop_app.services.report_service import (
     ReportDocument,
     build_report_input,
@@ -15,7 +16,6 @@ from desktop_app.services.report_service import (
     render_report_markdown,
 )
 from radar_eval_core.evaluation_pipeline import compute_waveform_evaluation
-from radar_eval_core.schemas import EvaluationRequest
 from radar_eval_core.scoring import ScoringConfig
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +34,7 @@ def test_generate_local_template_report_smoke() -> None:
     assert report.waveform_name == result.request.waveform.name
     assert any(section.title == "总体结论" for section in report.sections)
     assert any(section.title == "模型假设与限制" for section in report.sections)
+    assert all(section.title != "工程可实现性分析" for section in report.sections)
 
 
 def test_report_renderers_and_llm_placeholder_smoke() -> None:
@@ -55,8 +56,9 @@ def test_report_renderers_and_llm_placeholder_smoke() -> None:
 
 @lru_cache(maxsize=1)
 def _sample_result():
-    request = EvaluationRequest.model_validate(
-        _read_json(PROJECT_ROOT / "configs" / "lfm_default.json"),
+    request = EvaluationService().load_request_with_scenario_environment(
+        PROJECT_ROOT / "configs" / "lfm_default.json",
+        PROJECT_ROOT / "configs" / "scenario_default.json",
     )
     scoring_config = ScoringConfig.model_validate(
         _read_json(PROJECT_ROOT / "configs" / "scoring_default.json"),

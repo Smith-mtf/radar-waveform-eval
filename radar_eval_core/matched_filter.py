@@ -121,11 +121,6 @@ def compute_zero_doppler_sidelobe_metrics(
     )
 
 
-def run_matched_filter() -> None:
-    """保留旧占位入口；请直接调用 matched_filter 或 autocorrelation_matched_filter。"""
-    raise NotImplementedError("请使用 matched_filter 或 autocorrelation_matched_filter。")
-
-
 def _validate_matched_filter_signal(
     signal: npt.ArrayLike,
     name: str,

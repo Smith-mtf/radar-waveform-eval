@@ -17,6 +17,7 @@ from .ambiguity import (
 from .detection import DetectionModelError, compute_detection_metrics
 from .engineering import (
     compute_average_power,
+    compute_nominal_avg_psd_w_per_hz,
     compute_papr_db,
     compute_peak_power,
     compute_tbp,
@@ -27,7 +28,7 @@ from .jamming import (
     compute_wideband_noise_jamming_margin_jsr_linear,
     compute_wideband_noise_jamming_metrics,
 )
-from .lpi import LpiFeatureError, compute_lpi_exposure_metrics, compute_two_sided_periodogram_psd
+from .lpi import LpiFeatureError, compute_duty_cycle, compute_two_sided_periodogram_psd
 from .matched_filter import (
     MainlobeDetectionError,
     MatchedFilterError,
@@ -35,7 +36,7 @@ from .matched_filter import (
     compute_zero_doppler_sidelobe_metrics,
 )
 from .resolution import ResolutionMetricError, compute_resolution_metrics
-from .schemas import EvaluationRequest, EvaluationResult, RawMetric
+from .schemas import EvaluationRequest, EvaluationResult, RawMetric, derive_total_pulse_width_s
 from .scoring import ScoringConfig, ScoringError, compute_axis_scores, compute_total_score
 from .waveforms import generate_waveform
 
@@ -104,7 +105,8 @@ def _compute_engineering_raw_metrics(request: EvaluationRequest, iq: np.ndarray)
     average_power = compute_average_power(iq)
     peak_power = compute_peak_power(iq)
     papr = compute_papr_db(iq)
-    tbp = compute_tbp(request.waveform.bandwidth_hz, request.waveform.pulse_width_s)
+    pulse_width_s = _total_pulse_width_s(request)
+    tbp = compute_tbp(request.waveform.bandwidth_hz, pulse_width_s)
     return [
         _available_metric(
             "engineering.average_power_w",
@@ -198,7 +200,27 @@ def _compute_resolution_raw_metrics(request: EvaluationRequest) -> list[RawMetri
 
 def _compute_sidelobe_raw_metrics(request: EvaluationRequest, iq: np.ndarray) -> list[RawMetric]:
     """计算零多普勒旁瓣指标。"""
-    metrics = compute_zero_doppler_sidelobe_metrics(iq, request.evaluation.mainlobe_spec)
+    try:
+        metrics = compute_zero_doppler_sidelobe_metrics(iq, request.evaluation.mainlobe_spec)
+    except MainlobeDetectionError as exc:
+        reason = f"零多普勒主瓣边界不适用于当前波形或配置: {exc}"
+        return [
+            _unavailable_metric(
+                "sidelobe_ambiguity.zero_doppler_pslr_db",
+                "sidelobe_ambiguity",
+                reason,
+            ),
+            _unavailable_metric(
+                "sidelobe_ambiguity.zero_doppler_islr_db",
+                "sidelobe_ambiguity",
+                reason,
+            ),
+            _unavailable_metric(
+                "sidelobe_ambiguity.mainlobe_width_samples",
+                "sidelobe_ambiguity",
+                reason,
+            ),
+        ]
     return [
         _available_metric(
             "sidelobe_ambiguity.zero_doppler_pslr_db",
@@ -394,40 +416,35 @@ def _compute_jamming_raw_metrics(request: EvaluationRequest, iq: np.ndarray) -> 
 def _compute_lpi_raw_metrics(request: EvaluationRequest, iq: np.ndarray) -> list[RawMetric]:
     """计算低截获暴露特征。"""
     settings = request.evaluation
-    metrics = compute_lpi_exposure_metrics(
-        iq,
-        sample_rate_hz=request.waveform.sample_rate_hz,
-        bandwidth_hz=request.waveform.bandwidth_hz,
-        pulse_width_s=request.waveform.pulse_width_s,
-        occupied_power_fraction=settings.occupied_power_fraction,
-        prf_hz=settings.prf_hz,
-        pri_s=settings.pri_s,
+    pulse_width_s = _total_pulse_width_s(request)
+    peak_power = compute_peak_power(iq)
+    average_power = compute_average_power(iq)
+    nominal_avg_psd = compute_nominal_avg_psd_w_per_hz(
+        average_power,
+        request.waveform.bandwidth_hz,
     )
+    tbp = compute_tbp(request.waveform.bandwidth_hz, pulse_width_s)
     raw_metrics = [
-        _available_metric("lpi.peak_power_w", "lpi", metrics.peak_power_w, "W", "峰值功率"),
-        _available_metric("lpi.average_power_w", "lpi", metrics.average_power_w, "W", "平均功率"),
-        _available_metric("lpi.papr_db", "lpi", metrics.papr_db, "dB", "PAPR"),
+        _available_metric("lpi.peak_power_w", "lpi", peak_power, "W", "峰值功率"),
+        _available_metric("lpi.average_power_w", "lpi", average_power, "W", "平均功率"),
+        _available_metric("lpi.papr_db", "lpi", compute_papr_db(iq), "dB", "PAPR"),
         _available_metric(
             "lpi.nominal_avg_psd_w_per_hz",
             "lpi",
-            metrics.nominal_avg_psd_w_per_hz,
+            nominal_avg_psd,
             "W/Hz",
             "名义平均 PSD",
         ),
-        _available_metric(
-            "lpi.occupied_bandwidth_hz",
-            "lpi",
-            metrics.occupied_bandwidth_hz,
-            "Hz",
-            "中心占用带宽",
-        ),
-        _available_metric("lpi.tbp", "lpi", metrics.tbp, "", "时宽带宽积"),
+        _available_metric("lpi.tbp", "lpi", tbp, "", "时宽带宽积"),
     ]
+    duty_cycle: float | None = None
+    if settings.prf_hz is not None or settings.pri_s is not None:
+        duty_cycle = compute_duty_cycle(pulse_width_s, prf_hz=settings.prf_hz, pri_s=settings.pri_s)
     raw_metrics.append(
         _metric_or_unavailable(
             "lpi.duty_cycle",
             "lpi",
-            metrics.duty_cycle,
+            duty_cycle,
             "",
             "未提供 prf_hz 或 pri_s，不计算占空比。",
             "占空比",
@@ -440,17 +457,20 @@ def _compute_waveform_preview_chart(
     request: EvaluationRequest,
     waveform_signal: Any,
 ) -> dict[str, Any]:
-    """生成仅用于 UI 预览的实部波形，并在脉冲尾部补零显示。"""
+    """生成仅用于 UI 预览的归一化实部波形，并在脉冲尾部补零显示。"""
     sample_rate_hz = request.waveform.sample_rate_hz
-    pulse_width_s = request.waveform.pulse_width_s
+    pulse_width_s = _total_pulse_width_s(request)
     preview_duration_s = 2.0 * pulse_width_s
     total_preview_samples = int(round(preview_duration_s * sample_rate_hz)) + 1
     if total_preview_samples < waveform_signal.iq.size:
         raise EvaluationPipelineError("waveform preview 时长不能短于原始波形长度。")
 
+    normalization_factor = float(np.max(np.abs(waveform_signal.iq)))
+    if normalization_factor <= 0.0:
+        raise EvaluationPipelineError("waveform preview 归一化因子必须大于 0。")
     preview_time_s = np.arange(total_preview_samples, dtype=np.float64) / sample_rate_hz
     preview_real = np.zeros(total_preview_samples, dtype=np.float64)
-    preview_real[: waveform_signal.iq.size] = np.real(waveform_signal.iq)
+    preview_real[: waveform_signal.iq.size] = np.real(waveform_signal.iq) / normalization_factor
     return {
         "time_s": [float(value) for value in preview_time_s],
         "real_amplitude": [float(value) for value in preview_real],
@@ -459,6 +479,9 @@ def _compute_waveform_preview_chart(
         "pulse_width_s": float(pulse_width_s),
         "preview_duration_s": float(preview_duration_s),
         "zero_padded_for_display": True,
+        "amplitude_unit": "normalized",
+        "normalization_reference": "max_abs_iq",
+        "normalization_factor": normalization_factor,
     }
 
 
@@ -523,14 +546,14 @@ def _ambiguity_heatmap_doppler_window(request: EvaluationRequest) -> tuple[float
     """按波形类型选择模糊函数图显示用 Doppler 窗口。"""
     waveform = request.waveform
     if waveform.waveform_type == "rect":
-        requested_window_hz = 10.0 / waveform.pulse_width_s
+        requested_window_hz = 10.0 / _total_pulse_width_s(request)
         source = "rect_10_over_pulse_width"
     elif waveform.waveform_type == "lfm":
         requested_window_hz = waveform.bandwidth_hz
         source = "lfm_bandwidth"
     elif waveform.waveform_type == "phase_code":
-        requested_window_hz = 6.0 / waveform.pulse_width_s
-        source = "phase_code_6_over_pulse_width"
+        requested_window_hz = 6.0 / _total_pulse_width_s(request)
+        source = "phase_code_6_over_total_pulse_width"
     else:
         raise EvaluationPipelineError(f"不支持的波形类型: {waveform.waveform_type}")
 
@@ -541,6 +564,16 @@ def _ambiguity_heatmap_doppler_window(request: EvaluationRequest) -> tuple[float
     if doppler_window_hz < requested_window_hz:
         source = f"{source}_clipped_to_nyquist"
     return float(doppler_window_hz), source
+
+
+def _total_pulse_width_s(request: EvaluationRequest) -> float:
+    """返回当前请求用于指标计算和图表展示的完整脉冲时宽。"""
+    waveform = request.waveform
+    return derive_total_pulse_width_s(
+        waveform.waveform_type,
+        waveform.pulse_width_s,
+        phase_code=waveform.phase_code,
+    )
 
 
 def _compute_spectrum_chart(request: EvaluationRequest, iq: np.ndarray) -> dict[str, Any]:
